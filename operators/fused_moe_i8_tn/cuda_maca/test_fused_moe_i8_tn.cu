@@ -526,6 +526,25 @@ void run_benchmark() {
     }
 }
 
+void verify_mma_shape_specialization() {
+    int specialized_cases = 0;
+    for (const PublicCase& public_case : kPublicCases) {
+        const bool specialized =
+            xh_fused_moe::uses_prefill_gate_up_specialization(public_case.config);
+        const bool expected = std::strcmp(public_case.name, "prefill-gate-up") == 0;
+        if (specialized != expected) {
+            throw std::runtime_error(
+                std::string("MMA shape specialization dispatch failed for ") + public_case.name);
+        }
+        specialized_cases += specialized ? 1 : 0;
+        std::cout << "REGRESSION maca-shape-specialization case=" << public_case.name
+                  << " specialized=" << (specialized ? "yes" : "no") << " PASS\n";
+    }
+    if (specialized_cases != 1) {
+        throw std::runtime_error("MMA shape specialization must select exactly one public case");
+    }
+}
+
 void verify_mma_a_load_bounds() {
     constexpr int tile_rows = 128;
     constexpr int rows_per_load = 32;
@@ -556,6 +575,7 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_mma_shape_specialization();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }

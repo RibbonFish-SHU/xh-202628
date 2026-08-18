@@ -36,6 +36,10 @@ static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs)
     return lhs.em == rhs.em && lhs.n == rhs.n && lhs.k == rhs.k;
 }
 
+static inline bool uses_prefill_gate_up_specialization(const KernelConfig& config) {
+    return config.em == 32768 && config.n == 4096 && config.k == 7168;
+}
+
 static inline bool config_from_bytes(size_t bytes, bool is_a, KernelConfig* config) {
     static const KernelConfig kConfigs[] = {
         {4096, 4096, 7168},
@@ -151,6 +155,7 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
+template <int kFixedEm, int kFixedN, int kFixedK>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -159,11 +164,15 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const float* __restrict__ moe_weights_ptr,
     const int32_t* __restrict__ expert_ids_ptr,
     __nv_bfloat16* __restrict__ out_ptr,
-    int em,
-    int n,
-    int k
+    int runtime_em,
+    int runtime_n,
+    int runtime_k
 ) {
     using namespace cute;
+
+    const int em = kFixedEm == 0 ? runtime_em : kFixedEm;
+    const int n = kFixedN == 0 ? runtime_n : kFixedN;
+    const int k = kFixedK == 0 ? runtime_k : kFixedK;
 
 #define XH_MMA_STAGE_MNKX2(m, nn, kk)                                                             \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
@@ -834,18 +843,33 @@ static inline void launch(
         (config.n + kMmaTileN - 1) / kMmaTileN,
         (grid_m + grid_x - 1) / grid_x
     );
-    fused_moe_i8_tn_mma_kernel<<<grid, block>>>(
-        a,
-        b_col_major,
-        scale_a,
-        scale_b,
-        moe_weights,
-        expert_ids,
-        out,
-        config.em,
-        config.n,
-        config.k
-    );
+    if (uses_prefill_gate_up_specialization(config)) {
+        fused_moe_i8_tn_mma_kernel<32768, 4096, 7168><<<grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+    } else {
+        fused_moe_i8_tn_mma_kernel<0, 0, 0><<<grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+    }
 #else
     constexpr int BLOCK_M = 32;
     constexpr int BLOCK_N = 32;
