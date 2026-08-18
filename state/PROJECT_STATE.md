@@ -22,9 +22,9 @@
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
 | NVIDIA 执行链路 | verified | `exp-20260818-001` 在空闲 GPU 1 成功完成归档、隔离 staging、CUDA 12.2 编译、内核运行和结果回收；`exp-20260818-000` 的预检拒绝也已留档 |
 | Fused MoE 正确基线 | target-verified | `exp-20260818-004` / `b6e4272e9d8f` 已经 OJ `#116973` 验证 MXMACA 编译和 4/4 正确性；C500 得分仅 11，不能作为性能候选 |
-| Fused MoE MMA 候选 | proxy-verified-failure-fix | `exp-20260819-006` / `cba47c3418a5` 仅修复 OJ `#117017` 暴露的 A load 指针限定符不匹配；完整 proxy/NVIDIA 门禁通过，待 OJ 复验 MXMACA 编译、wave-MMA 正确性和 C500 性能 |
+| Fused MoE MMA 候选 | target-verified | `exp-20260819-006` / `cba47c3418a5` 已由 OJ `#117034` 验证 MXMACA 编译、4/4 wave-MMA 正确性和 C500 性能；81.5 分、榜 23，作为新的目标基线 |
 | C500 本地算力 | unavailable | 当前未提供 |
-| Agent OJ 提交次数 | 3 | `#116962` CE/0 分；`#116973` Accepted/11 分/排名 31；`#117017` CE/0 分/排名仍为 31；均已报告 |
+| Agent OJ 提交次数 | 4 | `#116962` CE/0 分；`#116973` Accepted/11 分；`#117017` CE/0 分；`#117034` Accepted/81.5 分/排名 23；均已报告 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
 
 机器可读远端门禁见 `state/remote-execution.json`。
@@ -72,11 +72,11 @@
 
 ## 当前技术阶段与下一步
 
-1. 当前目标正确性基线为 `b6e4272e9d8f13263f38d2dbff375dbd9c6e0eb0` / `exp-20260818-004`；OJ `#116973` 已验证其 MXMACA 编译、allocation-range shape 推断和 4/4 正确性，但 C500 仅 11 分、排名 31。
+1. 当前目标正确性与性能基线为 `cba47c3418a56cea350ef407997f7456d0f7cd48` / `exp-20260819-006`；OJ `#117034` 已验证其 MXMACA 编译、allocation-range shape 推断和 4/4 wave-MMA 正确性，C500 得分 81.5、排名 23。`b6e4272e9d8f` 仅保留为标量兼容回退。
 2. `exp-20260818-003` / `3b7f02efb795` 的 `__dp4a` 优化已被 OJ `#116962` 目标编译结果否决；不得再次提交该 intrinsic。
 3. `#116973` 四组 C500 用户核时间为 41.947、333.856、21.359、170.268 ms，仅为官方 baseline 的 0.122x、0.068x、0.209x、0.127x；标量字节展开是主瓶颈。
 4. `exp-20260819-005` / `067e38fdd6f3` 已按上述设计实现：MACA 分支的 128 次 MMA 调用及 A/B LDS/LDG 序列与官方 standalone kernel 逐项一致，A/scale_a 改为直接 routed-row 索引；NVIDIA 分支保持标量基线。
-5. `exp-20260819-006` / `cba47c3418a5` 已只把 MMA 内核的 `a_base` 改为从 `const_cast<int8_t*>(a_ptr)` 派生，完整 proxy/NVIDIA 门禁通过。下一步提交该精确源文件，验证 MXMACA 编译、wave-MMA 正确性和 C500 性能；不得重提 `#117017` 或引入 `__dp4a`。
+5. OJ `#117034` 已验证 `exp-20260819-006` / `cba47c3418a5` 的 MXMACA 编译与 4/4 wave-MMA 正确性，得分 81.5、排名 23。四个测试点分数 82/73/88/83、用户核时间 1053 us/8 ms/567 us/4286 us；下一轮只针对 prefill gate-up 的 73 分短板提出一个可证伪优化假设，不得重提失败版本或引入 `__dp4a`。
 
 ## NVIDIA 执行链路验证
 
@@ -86,13 +86,14 @@
 - `exp-20260818-003` / `3b7f02efb795`：只把逐字节标量 dot4 替换为 packed signed INT8 `__dp4a`。相同测试和方法下，四个 shape 的 proxy/NVIDIA median 分别为 38.742、277.980、17.531、140.046 ms；相对基线降低 15.01%-19.79% 延迟。全部正确性与回归继续以零差异通过。
 - `exp-20260818-004` / `b6e4272e9d8f`：根据 OJ `#116962` 的 CE 恢复官方兼容标量 dot4。全部正确性和回归零差异通过；四个 shape 的 proxy/NVIDIA median 为 43.577、341.350、21.775、173.166 ms。该轮是目标兼容性回退，不宣称保留 `__dp4a` 的 NVIDIA 提速。
 - `exp-20260819-005` / `067e38fdd6f3`：只在 MACA 编译分支加入官方 `__builtin_mxc_mma_16x16x16i8` 的 128x128x128 pipeline，并将旧 token gather 语义改为实时 OJ 的 routed-row 直读；NVIDIA 标量兼容分支未改。随机/边界/INT8 极值/零值/只读输入/四公开 shape 推断/公开 shape 抽样全部通过，128x128 输出映射 16,384 个元素恰好覆盖一次。proxy/NVIDIA 四组 median 为 45.529、338.711、21.707、171.755 ms；目标 MACA 分支未在 NVIDIA 上执行，决定为 `investigate`，等待 OJ 目标验证。
-- `exp-20260819-006` / `cba47c3418a5`：只把 MMA 内核 `a_base` 的声明与 reset 改为通过 `const_cast<int8_t*>(a_ptr)` 派生，适配 OJ `#117017` 显示的 MXMACA load builtin `void*` 形参；地址、数据与计算均未改变。完整 correctness、benchmark 和 regression 通过；proxy/NVIDIA 四组 median 为 45.533、338.750、21.550、172.007 ms，与上一版处于同一噪声范围。目标 MACA 分支仍未在 NVIDIA 上执行，待 OJ 验证。
+- `exp-20260819-006` / `cba47c3418a5`：只把 MMA 内核 `a_base` 的声明与 reset 改为通过 `const_cast<int8_t*>(a_ptr)` 派生，适配 OJ `#117017` 显示的 MXMACA load builtin `void*` 形参；地址、数据与计算均未改变。完整 correctness、benchmark 和 regression 通过；proxy/NVIDIA 四组 median 为 45.533、338.750、21.550、172.007 ms，与上一版处于同一噪声范围。随后 OJ `#117034` 以 4/4 Accepted、81.5 分完成目标验证。
 - 上述原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。
 
-`exp-20260818-002` 到 `exp-20260818-004` 的 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#116973` 已确认 allocation-range shape 推断在评测分配器中可用且标量实现 4/4 正确。下一版 MACA MMA 后端仍须通过目标编译和正确性门禁。
+`exp-20260818-002` 到 `exp-20260819-006` 的 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#116973` 已确认 allocation-range shape 推断在评测分配器中可用且标量实现 4/4 正确；OJ `#117034` 已确认当前 MMA 后端能够在目标上编译并通过 4/4 正确性。
 
 ## XPU-OJ 提交记录
 
 - `#116962` / `2026-08-18 23:22:21 +08:00` / `3b7f02efb795` / CUDA Maca：`Compilation Error`，0 分，0 us，0 B。错误为 `/sandbox/source/main.cu:84:12: use of undeclared identifier '__dp4a'`，编译目标 `xcore1000`。证据位于忽略目录 `artifacts/raw/xpuoj/116962/`；submission ledger 已登记、报告并清空门禁。
 - `#116973` / `2026-08-18 23:46:20 +08:00` / `b6e4272e9d8f` / CUDA Maca：`Accepted`，4/4 正确，11 分，页面汇总 567 ms / 22.6 G，2026-08-19 榜单排名 31。四组用户核时间为 41.947、333.856、21.359、170.268 ms；证据位于忽略目录 `artifacts/raw/xpuoj/116973/`，submission ledger 已登记、报告并清空门禁。
 - `#117017` / `2026-08-19 00:38:15 +08:00` / `067e38fdd6f3` / CUDA Maca：`Compilation Error`，0 分，排名仍为 31。CUTE/MACA 头文件解析成功；五处错误均为 A load 的 `const int8_t*` 不能转换为 MXMACA builtin 所需的 `void*`。证据位于忽略目录 `artifacts/raw/xpuoj/117017/`；submission ledger 已登记、向用户报告并清空门禁。
+- `#117034` / `2026-08-19 01:06:38 +08:00` / `cba47c3418a5` / CUDA Maca：`Accepted`，4/4 正确，81.5 分，页面汇总 14 ms / 22.6 G，榜单排名 23。四组分数为 82、73、88、83，用户核时间为 1053 us、8 ms、567 us、4286 us；证据位于忽略目录 `artifacts/raw/xpuoj/117034/`，submission ledger 已登记、向用户报告并清空门禁。

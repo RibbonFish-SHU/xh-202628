@@ -54,6 +54,24 @@
       "status": "Compilation Error",
       "submitted_at": "2026-08-18T16:38:15+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117017"
+    },
+    {
+      "commit": "cba47c3418a56cea350ef407997f7456d0f7cd48",
+      "evidence": "artifacts/raw/xpuoj/117034/terminal-top.png",
+      "experiment": "exp-20260819-006",
+      "id": "117034",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4. Case scores 82,73,88,83; user-kernel times 1053 us, 8 ms, 567 us, 4286 us; page summary 14 ms and 22.6 G. Scoreboard rank 23 at 81.50.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "11",
+      "rank": "23",
+      "report_summary": "Accepted 4/4 at 81.5 points and rank 23; case scores 82/73/88/83; MACA MMA backend is target-validated, with prefill gate-up now the main optimization target.",
+      "reported_at": "2026-08-18T17:18:34+00:00",
+      "reported_to_user": true,
+      "score": "81.5",
+      "status": "Accepted",
+      "submitted_at": "2026-08-18T17:06:38+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117034"
     }
   ],
   "version": 1
