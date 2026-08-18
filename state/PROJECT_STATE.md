@@ -26,6 +26,7 @@
 | Fused MoE wide-MMA 候选 | target-regressed | `exp-20260819-008` / `d24ad933e174` 经 OJ `#117079` 验证 4/4 正确但仅 79.25 分；prefill gate-up 从 73 降至 63，已由 `c2d5bcd` 恢复 81.75 分源码 |
 | Fused MoE A-first inference 候选 | target-covered | `exp-20260819-009` / `7d4eef642c15` 保留目标验证的 128x128 MMA 核心，只把 shape inference 热路径从两次 allocation-range 查询减为一次；该改动已包含在 OJ `#117114` 的 4/4 Accepted 路径中，但固定开销收益未单独隔离 |
 | Fused MoE exact-row A-load 基线 | target-verified | `exp-20260819-010` / `8c519e6c1bb5` 移除合同保证永远为真的 A-load 行谓词；OJ `#117114` 以 4/4 Accepted 验证目标兼容性，得分 82.25、排名 20，成为当前最佳 |
+| Fused MoE case-2 shape 特化候选 | proxy-verified | `exp-20260819-011` / `48cf11b848ef` 仅把 prefill gate-up 分派到编译期 `EM/N/K` 常量实例，保留 128x128 流水与其他三组运行时实例；proxy/NVIDIA 完整门禁通过，MXMACA 编译与 C500 收益待 OJ 验证 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 7 | `#116962` CE/0 分；`#116973` Accepted/11 分；`#117017` CE/0 分；`#117034` Accepted/81.5 分；`#117056` Accepted/81.75 分/排名 23；`#117079` Accepted/79.25 分；`#117114` Accepted/82.25 分/排名 20；均已报告 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
@@ -83,6 +84,7 @@
 6. `exp-20260819-008` / `d24ad933e174` 只为 prefill gate-up 增加官方 raw-array 风格的 128x256x128、256 线程 G2S MMA 路径。OJ `#117079` 虽 4/4 正确，但总分降至 79.25，目标测试点 2 从 73 降至 63、用户核时间从 8 ms 增至 13 ms。该假设已被否决：每 K tile 同步、寄存器压力和 48 KiB LDS 的代价超过 A 复用收益，后续保留已验证的 128x128 流水核心。
 7. `exp-20260819-009` / `7d4eef642c15` 已验证固定启动开销假设：四个公开 shape 的 A allocation size 唯一，因此 shape 推断热路径先由 A 成功返回，只在 A 查询失败时回退到 out 查询；MMA 内核、launch geometry 和算术均保持不变。proxy/NVIDIA 同进程微基准从 188.6 ns 降至 93.9 ns（2.008x），完整 correctness、benchmark 和 regression 通过；但绝对只减少约 94.7 ns，相对最快的 558 us OJ 测试点约 0.017%，不单独消耗一次 OJ 提交。
 8. `exp-20260819-010` / `8c519e6c1bb5` 只把 MACA MMA 的 A global load 从行谓词版本改为基线已用于 B 的无谓词 `__builtin_mxc_ldg_b128`，并删除死的 `row_a_mask`。合同四个 shape 的 EM 和 K 都精确按 128 对齐；逐线程回归证明每个 load 行都在当前 tile 内，gate-up/down 每线程分别移除 224/64 次谓词。OJ `#117114` 以 4/4 Accepted 验证该地址证明和目标编译，四点从最佳基线的 83、73、88、83 变为 83、73、89、84，总分从 81.75 升至 82.25、排名从 23 升至 20。保留该改动；下一步继续分析仍为 73 分的测试点 2，但不得恢复已被 `#117079` 否决的 128x256 G2S 路径。
+9. `exp-20260819-011` / `48cf11b848ef` 保留同一 128x128 MMA 指令流水，只把 `32768x4096x7168` prefill gate-up 分派到 `<32768,4096,7168>` 常量模板实例；其他三个公开 shape 继续使用 `<0,0,0>` 运行时实例。目标是假设 MXMACA 能折叠 56 个 K tile 的循环边界、A/B stride 与专家地址计算。物理 GPU 1 上提交快照完成 source check、build、完整 correctness/benchmark/regression，one-of-four 分派回归通过；proxy 四组 median 为 42.719、338.761、21.530、171.751 ms，目标特化未在 NVIDIA 分支执行。候选源码 33,619 bytes，blob `0ecfbee4150b`，SHA-256 `c3c5d59cebf6ca62d5c4c51b36aa0ea017898f60a58384977e663f6dd1faa14c`；MXMACA 编译、代码尺寸和 C500 收益待一次 OJ 验证。
 
 ## NVIDIA 执行链路验证
 
@@ -97,9 +99,10 @@
 - `exp-20260819-008` / `d24ad933e174`：仅对 prefill gate-up 增加 128x256x128 wide-MMA 路径，采用官方 256x256x128 raw-array 内核的 G2S、LDS 与 MMA 布局，同时把 M tile 保持为 128 以维持单专家语义；其余 shape 的目标路径不变。新增回归确认 32,768 个输出元素恰好覆盖一次且只有目标 shape 分派到新内核。完整代理门禁通过；proxy/NVIDIA 四组 median 为 45.530、338.708、21.548、171.745 ms。OJ `#117079` 以 4/4 Accepted 证明目标兼容性，但得分从 81.75 降至 79.25，prefill gate-up 从 73 降至 63；该候选已由 `c2d5bcd` 回退。
 - `exp-20260819-009` / `7d4eef642c15`：只让 `infer_public_config` 在 A allocation size 成功匹配后立即返回，out allocation query 保留为 A 查询失败时的兼容回退；目标验证的 128x128 MMA 内核与 NVIDIA fallback 均未改变。物理 GPU 1 上 build、三组 correctness、四公开 shape 的 A 主路径/out 回退、MMA 输出映射、M-grid、只读输入和公开 shape 抽样均通过。proxy/NVIDIA shape inference 中位数为 93.9 ns，对照两次查询为 188.6 ns（2.008x）；四组核心 median 为 45.534、338.755、21.528、171.751 ms，处于既有噪声范围。OJ 是否计入驱动查询固定开销待目标验证。
 - `exp-20260819-010` / `8c519e6c1bb5`：只移除 MACA 128x128 MMA 核心的 A-load 行谓词，B load、双缓冲指令序列、网格、输出和 NVIDIA fallback 均未改变。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过；逐线程范围验证确认 gate-up/down 分别安全移除 224/64 次谓词。proxy/NVIDIA 四组 core median 为 45.375、338.715、21.527、171.780 ms，目标改动未在 NVIDIA 分支执行。OJ `#117114` 随后以 4/4 Accepted 验证 A 地址正确性与目标编译，四点得分 83、73、89、84，用户核时间 1.012、8.158、0.543、4.123 ms，总分 82.25、排名 20；决定保留。
+- `exp-20260819-011` / `48cf11b848ef`：只为 prefill gate-up 增加同一 MACA 128x128 内核的编译期 shape 实例，其他 shape、MMA 流水、共享内存、网格、尾声、shape inference 与 NVIDIA fallback 均不变。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过；回归确认四个公开 shape 中只有 prefill gate-up 命中特化。proxy/NVIDIA 四组 core median 为 42.719、338.761、21.530、171.751 ms；目标模板未在 NVIDIA 分支执行，决定为 `investigate`，等待 OJ 验证。
 - 上述原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。
 
-`exp-20260818-002` 到 `exp-20260819-010` 的 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#116973` 已确认 allocation-range shape 推断在评测分配器中可用且标量实现 4/4 正确；OJ `#117034` 和 `#117056` 已确认当前 MMA 后端及 `grid_x=1` 调度能够在目标上编译并通过 4/4 正确性；OJ `#117079` 已否决 128x256 G2S 性能假设；OJ `#117114` 已确认 exact-row A-load 候选的 4/4 正确性并将目标最佳分提高到 82.25。
+`exp-20260818-002` 到 `exp-20260819-011` 的 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#116973` 已确认 allocation-range shape 推断在评测分配器中可用且标量实现 4/4 正确；OJ `#117034` 和 `#117056` 已确认当前 MMA 后端及 `grid_x=1` 调度能够在目标上编译并通过 4/4 正确性；OJ `#117079` 已否决 128x256 G2S 性能假设；OJ `#117114` 已确认 exact-row A-load 候选的 4/4 正确性并将目标最佳分提高到 82.25。`exp-20260819-011` 的常量模板目标分支仍待 OJ 验证。
 
 ## XPU-OJ 提交记录
 
