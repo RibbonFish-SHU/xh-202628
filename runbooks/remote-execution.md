@@ -39,6 +39,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\invoke-remote-gpu-
 5. 保存环境、stdout、stderr、时间和退出状态。
 6. 把 `results/` 回收到本地 `artifacts/raw/remote-runs/<run-id>/`。
 
+所有项目 SSH/SCP 调用显式使用 `ClearAllForwardings=yes`，不会继承本机 SSH 配置中的端口转发。
+
 入口失败时仍尝试回收结果，并以非零状态结束。run ID 或远端目录冲突时拒绝覆盖；创建新的实验 ID，不清理旧目录。
 
 ## 结果处理

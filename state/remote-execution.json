@@ -6,8 +6,8 @@
     "authorized": true,
     "authorization_quote": "1、允许",
     "authorized_at": "2026-08-18T21:06:19+08:00",
-    "created": false,
-    "created_at": null
+    "created": true,
+    "created_at": "2026-08-18T21:12:09+08:00"
   },
   "execution": {
     "enabled": true,

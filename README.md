@@ -9,7 +9,7 @@
 | 本地工作区 | `E:\XH-202628\xh-202628-agent`，已创建 |
 | 本地 Git | `main` 跟踪 `origin/main`；待提交本工作流 |
 | 远端只读探测 | 已完成 |
-| 远端执行目录 | `/home/user/lynsdu2/xh-202628-agent` 已获准，尚未创建 |
+| 远端执行目录 | `/home/user/lynsdu2/xh-202628-agent` 已创建并核对 |
 | GPU 使用策略 | GPU 0-7、最多 4 个并行空闲卡任务，已授权 |
 | GitHub | `git@github.com:RibbonFish-SHU/xh-202628.git`，本机 SSH 已验证 |
 | Agent 发起的 XPU-OJ 提交 | 0 次 |

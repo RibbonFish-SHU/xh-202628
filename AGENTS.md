@@ -29,12 +29,12 @@
 
 当前授权状态：
 
-- **远端目录创建已授权但尚未执行。** 只允许初始化 `/home/user/lynsdu2/xh-202628-agent`；创建完成并记录前不得上传 run。
+- **远端执行镜像已创建。** `/home/user/lynsdu2/xh-202628-agent` 已核对；不得再次初始化、覆盖或扩展到其他路径。
 - **GPU 策略已授权。** 可用 GPU 0-7，最多 4 个并行 run；任何选中卡存在计算进程时必须拒绝启动。
 - GitHub `origin` 已配置为 `git@github.com:RibbonFish-SHU/xh-202628.git`，使用本机已验证的 SSH 身份。
 - 未提供 C500 本地算力；NVIDIA 结果不得声称为 C500 结果。
 
-机器门禁位于 `state/remote-execution.json`。许可原文、时间、精确路径和 GPU 策略已经记录；必须先提交该状态，再初始化远端。不得为绕过脚本而擅自修改门禁。
+机器门禁位于 `state/remote-execution.json`。许可、创建时间、精确路径和 GPU 策略已经记录。不得为绕过脚本而擅自修改门禁。
 
 远端只允许触及 `/home/user/lynsdu2/xh-202628-agent`。不得递归读取、索引、修改、移动、清理或借用服务器上的其他项目、环境和凭据。
 

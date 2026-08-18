@@ -74,14 +74,14 @@ if (-not $Apply) {
 }
 
 $preflightCommand = "test ! -e '$remoteBase'"
-& ssh $sshTarget $preflightCommand
+& ssh -o ClearAllForwardings=yes $sshTarget $preflightCommand
 if ($LASTEXITCODE -ne 0) {
     throw "Remote target already exists or could not be checked. Nothing was created."
 }
 
 $marker = "xh-202628-execution-mirror-v1"
 $createCommand = "set -eu; umask 077; base='$remoteBase'; test ! -e `"`$base`"; mkdir -m 700 -- `"`$base`"; mkdir -m 700 -- `"`$base/incoming`" `"`$base/locks`" `"`$base/runs`"; printf '%s\n' '$marker' > `"`$base/.xh-202628-execution-mirror`"; stat -c '%n %U:%G %a' -- `"`$base`" `"`$base/incoming`" `"`$base/locks`" `"`$base/runs`""
-& ssh $sshTarget $createCommand
+& ssh -o ClearAllForwardings=yes $sshTarget $createCommand
 if ($LASTEXITCODE -ne 0) {
     throw "Remote bootstrap failed. Preserve the partial state and report it; do not auto-clean."
 }

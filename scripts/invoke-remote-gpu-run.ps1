@@ -148,11 +148,11 @@ Invoke-NativeChecked -FilePath "git" -ArgumentList @("-C", $repoRoot, "cat-file"
 $runId = "$ExperimentId-$shortCommit"
 $remoteRun = "$remoteBase/runs/$runId"
 $remotePreflight = "grep -qx 'xh-202628-execution-mirror-v1' '$remoteBase/.xh-202628-execution-mirror' && test ! -e '$remoteBase/incoming/$runId.tar' && test ! -e '$remoteBase/incoming/$runId.stage.sh' && test ! -e '$remoteRun' && printf 'ready\n'"
-$preflightOutput = Get-NativeText -FilePath "ssh" -ArgumentList @($sshTarget, $remotePreflight)
+$preflightOutput = Get-NativeText -FilePath "ssh" -ArgumentList @("-o", "ClearAllForwardings=yes", $sshTarget, $remotePreflight)
 if ($preflightOutput -ne "ready") {
     throw "Remote mirror preflight did not return the expected marker."
 }
-$remoteUsage = Get-NativeText -FilePath "ssh" -ArgumentList @($sshTarget, "du -sk -- '$remoteBase'")
+$remoteUsage = Get-NativeText -FilePath "ssh" -ArgumentList @("-o", "ClearAllForwardings=yes", $sshTarget, "du -sk -- '$remoteBase'")
 if ($remoteUsage -notmatch '^([0-9]+)\s') {
     throw "Could not parse remote storage usage: $remoteUsage"
 }
@@ -183,19 +183,19 @@ try {
 
     $remoteArchive = "${sshTarget}:${remoteBase}/incoming/$runId.tar"
     $remoteStage = "${sshTarget}:${remoteBase}/incoming/$runId.stage.sh"
-    Invoke-NativeChecked -FilePath "scp" -ArgumentList @("--", $bundlePath, $remoteArchive)
-    Invoke-NativeChecked -FilePath "scp" -ArgumentList @("--", $stageScript, $remoteStage)
+    Invoke-NativeChecked -FilePath "scp" -ArgumentList @("-o", "ClearAllForwardings=yes", "--", $bundlePath, $remoteArchive)
+    Invoke-NativeChecked -FilePath "scp" -ArgumentList @("-o", "ClearAllForwardings=yes", "--", $stageScript, $remoteStage)
 
     $stageCommand = "bash '$remoteBase/incoming/$runId.stage.sh' '$remoteBase' '$runId' '$commit'"
-    Invoke-NativeChecked -FilePath "ssh" -ArgumentList @($sshTarget, $stageCommand)
+    Invoke-NativeChecked -FilePath "ssh" -ArgumentList @("-o", "ClearAllForwardings=yes", $sshTarget, $stageCommand)
 
     $gpuCsv = $requestedGpuIds -join ','
     $runnerCommand = "bash '$remoteRun/source/scripts/remote-runner.sh' '$remoteBase' '$runId' '$entryPointNormalized' '$commit' '$gpuCsv' '$maxUtil' '$maxMemoryMiB' '$maxRunSeconds' '$maxParallelRuns' '$cudaHome'"
-    & ssh $sshTarget $runnerCommand
+    & ssh -o ClearAllForwardings=yes $sshTarget $runnerCommand
     $runnerExitCode = $LASTEXITCODE
 
     New-Item -ItemType Directory -Force -Path $localResultParent | Out-Null
-    Invoke-NativeChecked -FilePath "scp" -ArgumentList @("-r", "${sshTarget}:${remoteRun}/results", $localResultDir)
+    Invoke-NativeChecked -FilePath "scp" -ArgumentList @("-o", "ClearAllForwardings=yes", "-r", "${sshTarget}:${remoteRun}/results", $localResultDir)
 } finally {
     if (Test-Path -LiteralPath $tempRoot) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force

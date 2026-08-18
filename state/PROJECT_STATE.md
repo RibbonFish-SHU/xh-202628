@@ -14,8 +14,8 @@
 | 本地工作区 | complete | `E:\XH-202628\xh-202628-agent` 是唯一可信源码工作区 |
 | 本地 Git 仓库 | connected | `main` 跟踪 `origin/main`；作者沿用远端提交 `Yuyang Dai <dyyshanghai@shu.edu.cn>` |
 | 远端 SSH 只读探测 | complete | 已检查 `lynsdu2@10.0.33.75`，未写入 |
-| 远端目录创建许可 | authorized | 用户回复“1、允许”；精确路径许可已记录，尚未创建 |
-| 批准远端目录 | authorized | `/home/user/lynsdu2/xh-202628-agent`，授权前已确认不存在 |
+| 远端目录创建许可 | complete | 用户回复“1、允许”；许可和创建结果均已记录 |
+| 远端执行目录 | complete | `/home/user/lynsdu2/xh-202628-agent` 于 2026-08-18T21:12:09+08:00 创建并核对 |
 | 远端角色 | decided | 仅执行已提交 commit 的镜像，不作为 Git 工作树 |
 | GPU 使用策略 | authorized | GPU 0-7；最多 4 个并行 run；不抢占已有计算进程；其余阈值见 JSON |
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
@@ -42,12 +42,14 @@
 
 ## 远端创建许可记录
 
-- 状态：`AUTHORIZED_NOT_CREATED`
+- 状态：`CREATED`
 - 用户许可原文：`1、允许`
 - 批准记录时间：`2026-08-18T21:06:19+08:00`
 - 批准绝对路径：`/home/user/lynsdu2/xh-202628-agent`
+- 创建时间：`2026-08-18T21:12:09+08:00`
+- 创建结果：base/incoming/locks/runs 均为 `lynsdu2:lynsdu2`、权限 `700`；marker 权限 `600`；初始子目录为空，总占用 20 KiB。
 
-上述状态必须提交且工作树干净后，才可运行一次初始化脚本。
+初始化已经完成，不得再次运行创建脚本。
 
 ## GitHub 配置
 
@@ -67,7 +69,5 @@
 
 ## 当前技术阶段与下一步
 
-1. 验证并提交本次授权、GitHub 和并发 runner 变更，推送 `origin/main`。
-2. 运行 `runbooks/remote-bootstrap.md`，只创建批准的精确目录。
-3. 记录远端创建结果，再次提交并推送。
-4. 基于已冻结的实时 OJ 合同建立最小正确版本和 NVIDIA proxy baseline；提交前再次复核页面。
+1. 提交并推送远端创建结果和 SSH 隔离修正。
+2. 基于已冻结的实时 OJ 合同建立最小正确版本和 NVIDIA proxy baseline；提交前再次复核页面。

@@ -1,6 +1,6 @@
 # Remote Execution Mirror Bootstrap
 
-状态：**READY - 用户已于 2026-08-18 明确批准，尚未执行创建**
+状态：**COMPLETE - 2026-08-18T21:12:09+08:00 已创建并核对**
 
 - SSH 目标：`lynsdu2@10.0.33.75`
 - 唯一允许创建的目录：`/home/user/lynsdu2/xh-202628-agent`
@@ -8,7 +8,7 @@
 
 ## 绝对门禁
 
-用户已经针对上述精确路径回复“1、允许”。该许可已写入机器状态；不扩大到其他路径。
+用户已经针对上述精确路径回复“1、允许”。该许可已写入机器状态；不扩大到其他路径。初始化已完成，不得再次运行创建脚本。
 
 获得批准后，按顺序：
 
@@ -34,9 +34,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\initialize-remote-
 
 脚本拒绝复用已经存在的目标目录，不执行 Git 初始化，不配置 GitHub，不安装软件，也不访问其他项目。
 
-## 创建后核对
+## 创建后核对结果
 
-只核对目标目录自身的绝对路径、owner、权限、marker 和三个空子目录。随后更新 `state/PROJECT_STATE.md` 与 JSON 状态并提交。
+目标目录和三个子目录为 `lynsdu2:lynsdu2`、权限 `700`；marker 权限 `600` 且内容正确。`incoming/`、`locks/`、`runs/` 创建后均为空，总占用 20 KiB。
 
 若初始化中途失败，保留现场并向用户报告；不得自动递归删除或尝试清理。任何恢复操作都必须先解析并再次核对精确路径。
 
