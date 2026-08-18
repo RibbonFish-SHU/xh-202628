@@ -292,6 +292,32 @@ void verify_mma_output_mapping() {
               << " exact-cover=PASS\n";
 }
 
+void verify_mma_grid_mapping() {
+    constexpr int tile_rows = 128;
+    for (const PublicCase& public_case : kPublicCases) {
+        const int grid_m = (public_case.config.em + tile_rows - 1) / tile_rows;
+        const int grid_x = xh_fused_moe::mma_grid_x(public_case.config);
+        const int grid_z = (grid_m + grid_x - 1) / grid_x;
+        std::vector<int> visits(grid_m, 0);
+        for (int z = 0; z < grid_z; ++z) {
+            for (int x = 0; x < grid_x; ++x) {
+                const int tile_m = x + z * grid_x;
+                if (tile_m < grid_m) {
+                    ++visits[tile_m];
+                }
+            }
+        }
+        if (grid_x != 1
+            || !std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+            throw std::runtime_error(
+                std::string("MMA grid mapping failed for ") + public_case.name);
+        }
+        std::cout << "REGRESSION maca-mma-grid case=" << public_case.name
+                  << " grid_x=" << grid_x << " grid_z=" << grid_z
+                  << " exact-cover=PASS\n";
+    }
+}
+
 void benchmark_public_case(const PublicCase& public_case) {
     const auto& config = public_case.config;
     const size_t a_count = static_cast<size_t>(config.em) * config.k;
@@ -392,6 +418,7 @@ void run_benchmark() {
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
+    verify_mma_grid_mapping();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

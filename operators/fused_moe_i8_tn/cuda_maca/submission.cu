@@ -21,6 +21,17 @@ struct KernelConfig {
     int k;
 };
 
+static inline int mma_grid_x(const KernelConfig& config) {
+    constexpr int kNumExperts = 256;
+    constexpr int kTileRows = 128;
+    const int grid_m = (config.em + kTileRows - 1) / kTileRows;
+    const int average_rows_per_expert = config.em / kNumExperts;
+    int group_tiles = (average_rows_per_expert + kTileRows - 1) / kTileRows;
+    group_tiles = group_tiles < 1 ? 1 : group_tiles;
+    group_tiles = group_tiles > 8 ? 8 : group_tiles;
+    return grid_m < group_tiles ? grid_m : group_tiles;
+}
+
 static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs) {
     return lhs.em == rhs.em && lhs.n == rhs.n && lhs.k == rhs.k;
 }
@@ -836,7 +847,7 @@ static inline void launch(
 #if XH_FUSED_MOE_MACA
     const dim3 block(kMmaThreads);
     const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
-    const int grid_x = grid_m < 8 ? grid_m : 8;
+    const int grid_x = mma_grid_x(config);
     const dim3 grid(
         grid_x,
         (config.n + kMmaTileN - 1) / kMmaTileN,
