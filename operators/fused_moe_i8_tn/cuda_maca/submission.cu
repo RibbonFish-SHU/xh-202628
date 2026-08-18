@@ -80,14 +80,8 @@ static inline bool infer_public_config(
     return false;
 }
 
-__device__ __forceinline__ int dot4_i8_scalar(int a, int b, int accumulator) {
-#pragma unroll
-    for (int i = 0; i < 4; ++i) {
-        const int av = static_cast<int>(static_cast<int8_t>((a >> (8 * i)) & 0xff));
-        const int bv = static_cast<int>(static_cast<int8_t>((b >> (8 * i)) & 0xff));
-        accumulator += av * bv;
-    }
-    return accumulator;
+__device__ __forceinline__ int dot4_i8_packed(int a, int b, int accumulator) {
+    return __dp4a(a, b, accumulator);
 }
 
 template <int BLOCK_M, int BLOCK_N, int THREAD_M, int THREAD_N, int BK4>
@@ -156,10 +150,10 @@ __global__ void fused_moe_i8_tn_kernel(
             const int a1 = shared_a[(ty + TY) * BK4 + kk];
             const int b0 = shared_b[tx * BK4 + kk];
             const int b1 = shared_b[(tx + TX) * BK4 + kk];
-            acc00 = dot4_i8_scalar(a0, b0, acc00);
-            acc01 = dot4_i8_scalar(a0, b1, acc01);
-            acc10 = dot4_i8_scalar(a1, b0, acc10);
-            acc11 = dot4_i8_scalar(a1, b1, acc11);
+            acc00 = dot4_i8_packed(a0, b0, acc00);
+            acc01 = dot4_i8_packed(a0, b1, acc01);
+            acc10 = dot4_i8_packed(a1, b0, acc10);
+            acc11 = dot4_i8_packed(a1, b1, acc11);
         }
         __syncthreads();
     }
