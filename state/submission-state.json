@@ -108,6 +108,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-18T18:12:20+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117079"
+    },
+    {
+      "commit": "8c519e6c1bb57e7b124b60806db9575fa1267207",
+      "evidence": "artifacts/raw/xpuoj/117114",
+      "experiment": "exp-20260819-010",
+      "id": "117114",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4. Case scores 83,73,89,84; user-kernel times 1012 us, 8.158 ms, 543 us, 4123 us; page summary 14 ms and 22.6 G. Removing exact-row A-load predicates raised the best score by 0.50 and the scoreboard rank from 23 to 20.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "81.75",
+      "rank": "20",
+      "report_summary": "Accepted 82.25, rank 20, 4/4; +0.50 vs #117056",
+      "reported_at": "2026-08-18T19:09:48+00:00",
+      "reported_to_user": true,
+      "score": "82.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-18T18:56:31+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117114"
     }
   ],
   "version": 1
