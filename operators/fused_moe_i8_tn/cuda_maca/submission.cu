@@ -115,6 +115,32 @@ __host__ __device__ __forceinline__ int mma_output_col_local(
     return (thread_id % 16) * 4 + col_group * 64 + col_in_group;
 }
 
+static inline bool use_wide_prefill_gate_up(const KernelConfig& config) {
+    return config.em == 32768 && config.n == 4096 && config.k == 7168;
+}
+
+__host__ __device__ __forceinline__ int wide_mma_output_row_local(
+    int thread_id,
+    int row_block,
+    int row_in_block
+) {
+    const int wave = thread_id / 64;
+    const int lane = thread_id % 64;
+    return (wave / 2) * 64 + row_block * 16 + (lane / 16) * 4 + row_in_block;
+}
+
+__host__ __device__ __forceinline__ int wide_mma_output_col_local(
+    int thread_id,
+    int column_group,
+    int column_block,
+    int column_half
+) {
+    const int wave = thread_id / 64;
+    const int lane = thread_id % 64;
+    return (wave % 2) * 128 + column_group * 64 + column_block * 32
+        + (lane % 16) + column_half * 16;
+}
+
 #if XH_FUSED_MOE_MACA
 
 using MmaInt1 = __NATIVE_VECTOR__(1, int32_t);
@@ -718,6 +744,328 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #undef XH_MMA_STAGE_MNKX2
 }
 
+constexpr int kWideMmaTileM = 128;
+constexpr int kWideMmaTileN = 256;
+constexpr int kWideMmaTileK = 128;
+constexpr int kWideMmaThreads = 256;
+constexpr int kWideMmaRowBlocks = 4;
+constexpr int kWideMmaColumnGroups = 2;
+constexpr int kWideMmaColumnBlocks = 2;
+constexpr int kWideMmaElementsPerLoad = 16;
+constexpr int kWideMmaSharedABytes = kWideMmaTileM * kWideMmaTileK;
+constexpr int kWideMmaSharedBBytes = kWideMmaTileN * kWideMmaTileK;
+constexpr int kWideMmaSharedBytes = kWideMmaSharedABytes + kWideMmaSharedBBytes;
+
+struct WideMmaThreadContext {
+    int a_store_offset[4];
+    int a_row_local[4];
+    int a_load_k[4];
+    int b_store_offset[8];
+    int b_col_local[8];
+    int b_load_k[8];
+    int a_lds_offset[kWideMmaRowBlocks][2];
+    int b_lds_offset[kWideMmaColumnGroups][kWideMmaColumnBlocks][2][2];
+};
+
+__device__ __forceinline__ int wide_mma_swizzled_slot(int row_or_col, int slot) {
+    return slot ^ (row_or_col & 7);
+}
+
+__device__ __forceinline__ void wide_mma_build_context(
+    WideMmaThreadContext& context,
+    int tid
+) {
+    const int wave = tid / kMmaWaveSize;
+    const int lane = tid % kMmaWaveSize;
+    const int wave_row_group = wave / 2;
+    const int wave_col_group = wave % 2;
+    const int lane16 = lane % 16;
+    const int lane_quarter = lane / 16;
+    const int row_or_col_local = tid >> 3;
+    const int physical_slot = tid & 7;
+
+#pragma unroll
+    for (int pass = 0; pass < 4; ++pass) {
+        const int row = pass * 32 + row_or_col_local;
+        const int source_slot = wide_mma_swizzled_slot(row, physical_slot);
+        context.a_store_offset[pass] =
+            row * kWideMmaTileK + physical_slot * kWideMmaElementsPerLoad;
+        context.a_row_local[pass] = row;
+        context.a_load_k[pass] = source_slot * kWideMmaElementsPerLoad;
+    }
+#pragma unroll
+    for (int pass = 0; pass < 8; ++pass) {
+        const int col = pass * 32 + row_or_col_local;
+        const int source_slot = wide_mma_swizzled_slot(col, physical_slot);
+        context.b_store_offset[pass] =
+            col * kWideMmaTileK + physical_slot * kWideMmaElementsPerLoad;
+        context.b_col_local[pass] = col;
+        context.b_load_k[pass] = source_slot * kWideMmaElementsPerLoad;
+    }
+
+    const int quarter_slots[2] = {lane_quarter, lane_quarter + 4};
+#pragma unroll
+    for (int row_block = 0; row_block < kWideMmaRowBlocks; ++row_block) {
+        const int row = wave_row_group * 64 + row_block * 16 + lane16;
+#pragma unroll
+        for (int half = 0; half < 2; ++half) {
+            const int physical = wide_mma_swizzled_slot(row, quarter_slots[half]);
+            context.a_lds_offset[row_block][half] =
+                row * kWideMmaTileK + physical * kWideMmaElementsPerLoad;
+        }
+    }
+
+#pragma unroll
+    for (int column_group = 0; column_group < kWideMmaColumnGroups; ++column_group) {
+#pragma unroll
+        for (int column_block = 0; column_block < kWideMmaColumnBlocks; ++column_block) {
+            const int chunk = wave_col_group * 4 + column_group * 2 + column_block;
+            const int first_col = chunk * 32 + lane16;
+            const int cols[2] = {first_col, first_col + 16};
+#pragma unroll
+            for (int half = 0; half < 2; ++half) {
+#pragma unroll
+                for (int which = 0; which < 2; ++which) {
+                    const int physical =
+                        wide_mma_swizzled_slot(cols[which], quarter_slots[half]);
+                    context.b_lds_offset[column_group][column_block][half][which] =
+                        cols[which] * kWideMmaTileK
+                        + physical * kWideMmaElementsPerLoad;
+                }
+            }
+        }
+    }
+}
+
+template <int Pass>
+__device__ __forceinline__ void wide_mma_load_a(
+    int8_t* shared_a,
+    const int8_t* a,
+    int k,
+    int row_base,
+    int k_base,
+    const WideMmaThreadContext& context
+) {
+    const int row = row_base + context.a_row_local[Pass];
+    __builtin_mxc_ldg_b128_bsm(
+        shared_a + context.a_store_offset[Pass],
+        const_cast<void*>(reinterpret_cast<const void*>(
+            a + static_cast<uint64_t>(row) * k + k_base + context.a_load_k[Pass])),
+        0,
+        -1,
+        true,
+        true,
+        false,
+        true);
+}
+
+template <int Pass>
+__device__ __forceinline__ void wide_mma_load_b(
+    int8_t* shared_b,
+    const int8_t* b,
+    int k,
+    int col_base,
+    int k_base,
+    const WideMmaThreadContext& context
+) {
+    const int col = col_base + context.b_col_local[Pass];
+    __builtin_mxc_ldg_b128_bsm(
+        shared_b + context.b_store_offset[Pass],
+        const_cast<void*>(reinterpret_cast<const void*>(
+            b + static_cast<uint64_t>(col) * k + k_base + context.b_load_k[Pass])),
+        0,
+        -1,
+        true,
+        true,
+        false,
+        true);
+}
+
+__device__ __forceinline__ void wide_mma_wait_for_load() {
+    __builtin_mxc_arrive(64);
+    __builtin_mxc_barrier_inst();
+}
+
+__device__ __forceinline__ void wide_mma_on_pack(
+    MmaInt4& accum_left,
+    MmaInt4& accum_right,
+    const MmaLoad128& a_pack,
+    const MmaLoad128& b_left,
+    const MmaLoad128& b_right
+) {
+    const int32_t* a_frag = reinterpret_cast<const int32_t*>(&a_pack);
+    const int32_t* b_left_frag = reinterpret_cast<const int32_t*>(&b_left);
+    const int32_t* b_right_frag = reinterpret_cast<const int32_t*>(&b_right);
+#pragma unroll
+    for (int step = 0; step < 4; ++step) {
+        accum_left = XH_MMA_I8(a_frag[step], b_left_frag[step], accum_left);
+        accum_right = XH_MMA_I8(a_frag[step], b_right_frag[step], accum_right);
+    }
+}
+
+__device__ __forceinline__ void wide_mma_consume_tile(
+    MmaInt4 (&accum)[kWideMmaColumnGroups][kWideMmaColumnBlocks]
+                    [kWideMmaRowBlocks][2],
+    const int8_t* shared_a,
+    const int8_t* shared_b,
+    const WideMmaThreadContext& context
+) {
+    MmaLoad128 b_left_low[kWideMmaColumnGroups][kWideMmaColumnBlocks];
+    MmaLoad128 b_right_low[kWideMmaColumnGroups][kWideMmaColumnBlocks];
+    MmaLoad128 b_left_high[kWideMmaColumnGroups][kWideMmaColumnBlocks];
+    MmaLoad128 b_right_high[kWideMmaColumnGroups][kWideMmaColumnBlocks];
+
+#pragma unroll
+    for (int column_group = 0; column_group < kWideMmaColumnGroups; ++column_group) {
+#pragma unroll
+        for (int column_block = 0; column_block < kWideMmaColumnBlocks; ++column_block) {
+            XH_MMA_LDS(
+                b_left_low[column_group][column_block],
+                *const_cast<int8_t*>(shared_b
+                    + context.b_lds_offset[column_group][column_block][0][0]),
+                MmaLoad128);
+            XH_MMA_LDS(
+                b_right_low[column_group][column_block],
+                *const_cast<int8_t*>(shared_b
+                    + context.b_lds_offset[column_group][column_block][0][1]),
+                MmaLoad128);
+            XH_MMA_LDS(
+                b_left_high[column_group][column_block],
+                *const_cast<int8_t*>(shared_b
+                    + context.b_lds_offset[column_group][column_block][1][0]),
+                MmaLoad128);
+            XH_MMA_LDS(
+                b_right_high[column_group][column_block],
+                *const_cast<int8_t*>(shared_b
+                    + context.b_lds_offset[column_group][column_block][1][1]),
+                MmaLoad128);
+        }
+    }
+
+#pragma unroll
+    for (int row_block = 0; row_block < kWideMmaRowBlocks; ++row_block) {
+        MmaLoad128 a_low;
+        MmaLoad128 a_high;
+        XH_MMA_LDS(
+            a_low,
+            *const_cast<int8_t*>(shared_a + context.a_lds_offset[row_block][0]),
+            MmaLoad128);
+        XH_MMA_LDS(
+            a_high,
+            *const_cast<int8_t*>(shared_a + context.a_lds_offset[row_block][1]),
+            MmaLoad128);
+#pragma unroll
+        for (int column_group = 0; column_group < kWideMmaColumnGroups; ++column_group) {
+#pragma unroll
+            for (int column_block = 0; column_block < kWideMmaColumnBlocks; ++column_block) {
+                wide_mma_on_pack(
+                    accum[column_group][column_block][row_block][0],
+                    accum[column_group][column_block][row_block][1],
+                    a_low,
+                    b_left_low[column_group][column_block],
+                    b_right_low[column_group][column_block]);
+                wide_mma_on_pack(
+                    accum[column_group][column_block][row_block][0],
+                    accum[column_group][column_block][row_block][1],
+                    a_high,
+                    b_left_high[column_group][column_block],
+                    b_right_high[column_group][column_block]);
+            }
+        }
+    }
+}
+
+__global__ void fused_moe_i8_tn_wide_mma_kernel(
+    const int8_t* __restrict__ a,
+    const int8_t* __restrict__ b,
+    const float* __restrict__ scale_a,
+    const float* __restrict__ scale_b,
+    const float* __restrict__ moe_weights,
+    const int32_t* __restrict__ expert_ids,
+    __nv_bfloat16* __restrict__ out,
+    int em,
+    int n,
+    int k
+) {
+    const int tid = threadIdx.x;
+    const int tile_m = blockIdx.x + blockIdx.z * gridDim.x;
+    const int tile_n = blockIdx.y;
+    const int row_base = tile_m * kWideMmaTileM;
+    const int col_base = tile_n * kWideMmaTileN;
+    if (row_base >= em || col_base >= n) {
+        return;
+    }
+
+    __shared__ int8_t shared_data[kWideMmaSharedBytes];
+    int8_t* shared_a = shared_data;
+    int8_t* shared_b = shared_data + kWideMmaSharedABytes;
+
+    const int expert = expert_ids[tile_m];
+    const int8_t* expert_b = b + static_cast<uint64_t>(expert) * n * k;
+    WideMmaThreadContext context;
+    wide_mma_build_context(context, tid);
+    MmaInt4 accum[kWideMmaColumnGroups][kWideMmaColumnBlocks]
+                 [kWideMmaRowBlocks][2] = {0};
+
+    for (int k_base = 0; k_base < k; k_base += kWideMmaTileK) {
+        wide_mma_load_a<0>(shared_a, a, k, row_base, k_base, context);
+        wide_mma_load_a<1>(shared_a, a, k, row_base, k_base, context);
+        wide_mma_load_a<2>(shared_a, a, k, row_base, k_base, context);
+        wide_mma_load_a<3>(shared_a, a, k, row_base, k_base, context);
+        wide_mma_load_b<0>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_load_b<1>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_load_b<2>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_load_b<3>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_load_b<4>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_load_b<5>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_load_b<6>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_load_b<7>(shared_b, expert_b, k, col_base, k_base, context);
+        wide_mma_wait_for_load();
+        wide_mma_consume_tile(accum, shared_a, shared_b, context);
+        __syncthreadshared();
+    }
+
+    const int wave = tid / kMmaWaveSize;
+    const int lane = tid % kMmaWaveSize;
+    const int lane_col = lane % 16;
+    MmaBfloat16* output = reinterpret_cast<MmaBfloat16*>(out);
+    const float* expert_scale_b = scale_b + static_cast<uint64_t>(expert) * n;
+
+#pragma unroll
+    for (int row_block = 0; row_block < kWideMmaRowBlocks; ++row_block) {
+#pragma unroll
+        for (int row_in_block = 0; row_in_block < 4; ++row_in_block) {
+            const int row = row_base
+                + (wave / 2) * 64 + row_block * 16 + (lane / 16) * 4 + row_in_block;
+            const float row_factor = scale_a[row] * moe_weights[row];
+#pragma unroll
+            for (int column_group = 0;
+                 column_group < kWideMmaColumnGroups;
+                 ++column_group) {
+#pragma unroll
+                for (int column_block = 0;
+                     column_block < kWideMmaColumnBlocks;
+                     ++column_block) {
+                    const int local_col = (wave % 2) * 128 + column_group * 64
+                        + column_block * 32 + lane_col;
+                    const int col_left = col_base + local_col;
+                    const int col_right = col_left + 16;
+                    const float value_left = static_cast<float>(
+                        accum[column_group][column_block][row_block][0][row_in_block])
+                        * row_factor * expert_scale_b[col_left];
+                    const float value_right = static_cast<float>(
+                        accum[column_group][column_block][row_block][1][row_in_block])
+                        * row_factor * expert_scale_b[col_right];
+                    output[static_cast<uint64_t>(row) * n + col_left] =
+                        __float2bfloat16(value_left);
+                    output[static_cast<uint64_t>(row) * n + col_right] =
+                        __float2bfloat16(value_right);
+                }
+            }
+        }
+    }
+}
+
 #else
 
 __device__ __forceinline__ int dot4_i8_scalar(int a, int b, int accumulator) {
@@ -845,9 +1193,30 @@ static inline void launch(
     const KernelConfig& config
 ) {
 #if XH_FUSED_MOE_MACA
-    const dim3 block(kMmaThreads);
     const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
     const int grid_x = mma_grid_x(config);
+    if (use_wide_prefill_gate_up(config)) {
+        const dim3 wide_block(kWideMmaThreads);
+        const dim3 wide_grid(
+            grid_x,
+            (config.n + kWideMmaTileN - 1) / kWideMmaTileN,
+            (grid_m + grid_x - 1) / grid_x
+        );
+        fused_moe_i8_tn_wide_mma_kernel<<<wide_grid, wide_block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+        return;
+    }
+    const dim3 block(kMmaThreads);
     const dim3 grid(
         grid_x,
         (config.n + kMmaTileN - 1) / kMmaTileN,
