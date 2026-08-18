@@ -22,9 +22,9 @@
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
 | NVIDIA 执行链路 | verified | `exp-20260818-001` 在空闲 GPU 1 成功完成归档、隔离 staging、CUDA 12.2 编译、内核运行和结果回收；`exp-20260818-000` 的预检拒绝也已留档 |
 | Fused MoE 正确基线 | target-verified | `exp-20260818-004` / `b6e4272e9d8f` 已经 OJ `#116973` 验证 MXMACA 编译和 4/4 正确性；C500 得分仅 11，不能作为性能候选 |
-| Fused MoE MMA 候选 | proxy-verified | `exp-20260819-005` / `067e38fdd6f3` 增加官方 xcore1000 INT8 MMA 目标后端；NVIDIA 兼容分支完整回归通过，待 OJ 验证 MXMACA 编译、wave-MMA 正确性和 C500 性能 |
+| Fused MoE MMA 候选 | target-compile-failed | `exp-20260819-005` / `067e38fdd6f3` 的 NVIDIA 兼容分支完整回归通过；OJ `#117017` 已确认 CUTE/MACA 头可用，但五处 A load 因 `const int8_t*` 到 builtin `void*` 的限定符不匹配而 CE；待 `exp-20260819-006` 单点修复后复验 |
 | C500 本地算力 | unavailable | 当前未提供 |
-| Agent OJ 提交次数 | 2 | `#116962` CE/0 分；`#116973` Accepted/11 分/排名 31；均已报告 |
+| Agent OJ 提交次数 | 3 | `#116962` CE/0 分；`#116973` Accepted/11 分/排名 31；`#117017` CE/0 分/排名仍为 31；均已报告 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
 
 机器可读远端门禁见 `state/remote-execution.json`。
@@ -76,7 +76,7 @@
 2. `exp-20260818-003` / `3b7f02efb795` 的 `__dp4a` 优化已被 OJ `#116962` 目标编译结果否决；不得再次提交该 intrinsic。
 3. `#116973` 四组 C500 用户核时间为 41.947、333.856、21.359、170.268 ms，仅为官方 baseline 的 0.122x、0.068x、0.209x、0.127x；标量字节展开是主瓶颈。
 4. `exp-20260819-005` / `067e38fdd6f3` 已按上述设计实现：MACA 分支的 128 次 MMA 调用及 A/B LDS/LDG 序列与官方 standalone kernel 逐项一致，A/scale_a 改为直接 routed-row 索引；NVIDIA 分支保持标量基线。
-5. 下一目标门禁是通过一次受控 OJ 提交验证该候选的 MXMACA 编译、wave-MMA 正确性和 C500 性能；提交源码必须来自 `067e38fdd6f3`，不得把后续纯账本/基础设施 commit 当作候选 commit。
+5. OJ `#117017` 已证实 CUTE/MACA 头文件可用，但五处 `__mxc_builtin_mxc_ldg` 调用因 A 基址派生自 `const int8_t*` 而编译失败。下一轮 `exp-20260819-006` 只把 MMA 内核的 `a_base` 改为从 `const_cast<int8_t*>(a_ptr)` 派生；完成新 commit 的全套 proxy/NVIDIA 门禁后，再受控提交验证 wave-MMA 正确性和 C500 性能。
 
 ## NVIDIA 执行链路验证
 
@@ -94,3 +94,4 @@
 
 - `#116962` / `2026-08-18 23:22:21 +08:00` / `3b7f02efb795` / CUDA Maca：`Compilation Error`，0 分，0 us，0 B。错误为 `/sandbox/source/main.cu:84:12: use of undeclared identifier '__dp4a'`，编译目标 `xcore1000`。证据位于忽略目录 `artifacts/raw/xpuoj/116962/`；submission ledger 已登记、报告并清空门禁。
 - `#116973` / `2026-08-18 23:46:20 +08:00` / `b6e4272e9d8f` / CUDA Maca：`Accepted`，4/4 正确，11 分，页面汇总 567 ms / 22.6 G，2026-08-19 榜单排名 31。四组用户核时间为 41.947、333.856、21.359、170.268 ms；证据位于忽略目录 `artifacts/raw/xpuoj/116973/`，submission ledger 已登记、报告并清空门禁。
+- `#117017` / `2026-08-19 00:38:15 +08:00` / `067e38fdd6f3` / CUDA Maca：`Compilation Error`，0 分，排名仍为 31。CUTE/MACA 头文件解析成功；五处错误均为 A load 的 `const int8_t*` 不能转换为 MXMACA builtin 所需的 `void*`。证据位于忽略目录 `artifacts/raw/xpuoj/117017/`；submission ledger 已登记、向用户报告并清空门禁。
