@@ -2,6 +2,7 @@
 #include "submission.cu"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <iomanip>
@@ -250,6 +251,8 @@ const PublicCase kPublicCases[] = {
 };
 
 void verify_public_inference() {
+    DeviceBuffer<int8_t> unknown_a(1);
+    DeviceBuffer<uint16_t> unknown_out(1);
     for (const PublicCase& public_case : kPublicCases) {
         const auto& expected = public_case.config;
         DeviceBuffer<int8_t> dev_a(static_cast<size_t>(expected.em) * expected.k);
@@ -260,8 +263,115 @@ void verify_public_inference() {
             || !xh_fused_moe::same_config(actual, expected)) {
             throw std::runtime_error(std::string("allocation inference failed for ") + public_case.name);
         }
+        if (!xh_fused_moe::infer_public_config(
+                dev_a.get(), reinterpret_cast<__nv_bfloat16*>(unknown_out.get()), &actual)
+            || !xh_fused_moe::same_config(actual, expected)) {
+            throw std::runtime_error(std::string("A-primary inference failed for ") + public_case.name);
+        }
+        if (!xh_fused_moe::infer_public_config(
+                unknown_a.get(), reinterpret_cast<__nv_bfloat16*>(dev_out.get()), &actual)
+            || !xh_fused_moe::same_config(actual, expected)) {
+            throw std::runtime_error(std::string("out-fallback inference failed for ") + public_case.name);
+        }
         std::cout << "REGRESSION allocation-inference case=" << public_case.name << " PASS\n";
     }
+}
+
+bool infer_public_config_two_query_reference(
+    const int8_t* a,
+    const __nv_bfloat16* out,
+    xh_fused_moe::KernelConfig* config
+) {
+    xh_fused_moe::KernelConfig a_config{};
+    xh_fused_moe::KernelConfig out_config{};
+    size_t bytes = 0;
+    const bool have_a = xh_fused_moe::allocation_bytes(a, &bytes)
+        && xh_fused_moe::config_from_bytes(bytes, true, &a_config);
+    const bool have_out = xh_fused_moe::allocation_bytes(out, &bytes)
+        && xh_fused_moe::config_from_bytes(bytes, false, &out_config);
+    if (have_a && have_out && !xh_fused_moe::same_config(a_config, out_config)) {
+        return false;
+    }
+    if (have_a) {
+        *config = a_config;
+        return true;
+    }
+    if (have_out) {
+        *config = out_config;
+        return true;
+    }
+    return false;
+}
+
+using InferenceFunction = bool (*)(
+    const int8_t*, const __nv_bfloat16*, xh_fused_moe::KernelConfig*);
+
+double measure_inference_ns(
+    InferenceFunction inference,
+    const int8_t* a,
+    const __nv_bfloat16* out,
+    int iterations,
+    volatile uint64_t* checksum
+) {
+    const auto started = std::chrono::steady_clock::now();
+    for (int iteration = 0; iteration < iterations; ++iteration) {
+        xh_fused_moe::KernelConfig config{};
+        if (!inference(a, out, &config)) {
+            throw std::runtime_error("shape-inference benchmark failed");
+        }
+        *checksum += static_cast<uint64_t>(config.em + config.n + config.k);
+    }
+    const auto finished = std::chrono::steady_clock::now();
+    return std::chrono::duration<double, std::nano>(finished - started).count() / iterations;
+}
+
+void benchmark_inference_query_path() {
+    const auto config = kPublicCases[0].config;
+    DeviceBuffer<int8_t> dev_a(static_cast<size_t>(config.em) * config.k);
+    DeviceBuffer<uint16_t> dev_out(static_cast<size_t>(config.em) * config.n);
+    constexpr int kRounds = 9;
+    constexpr int kIterations = 2000;
+    std::vector<double> fast_path_ns;
+    std::vector<double> two_query_ns;
+    volatile uint64_t checksum = 0;
+    for (int round = 0; round < kRounds; ++round) {
+        if ((round & 1) == 0) {
+            fast_path_ns.push_back(measure_inference_ns(
+                xh_fused_moe::infer_public_config,
+                dev_a.get(),
+                reinterpret_cast<__nv_bfloat16*>(dev_out.get()),
+                kIterations,
+                &checksum));
+            two_query_ns.push_back(measure_inference_ns(
+                infer_public_config_two_query_reference,
+                dev_a.get(),
+                reinterpret_cast<__nv_bfloat16*>(dev_out.get()),
+                kIterations,
+                &checksum));
+        } else {
+            two_query_ns.push_back(measure_inference_ns(
+                infer_public_config_two_query_reference,
+                dev_a.get(),
+                reinterpret_cast<__nv_bfloat16*>(dev_out.get()),
+                kIterations,
+                &checksum));
+            fast_path_ns.push_back(measure_inference_ns(
+                xh_fused_moe::infer_public_config,
+                dev_a.get(),
+                reinterpret_cast<__nv_bfloat16*>(dev_out.get()),
+                kIterations,
+                &checksum));
+        }
+    }
+    std::sort(fast_path_ns.begin(), fast_path_ns.end());
+    std::sort(two_query_ns.begin(), two_query_ns.end());
+    const double fast_median = fast_path_ns[kRounds / 2];
+    const double two_query_median = two_query_ns[kRounds / 2];
+    std::cout << "BENCHMARK proxy-host-inference fast_path_ns=" << std::fixed
+              << std::setprecision(1) << fast_median
+              << " two_query_ns=" << two_query_median
+              << " speedup=" << std::setprecision(3) << two_query_median / fast_median
+              << "x checksum=" << checksum << "\n";
 }
 
 void verify_mma_output_mapping() {
@@ -410,6 +520,7 @@ void run_correctness() {
 }
 
 void run_benchmark() {
+    benchmark_inference_query_path();
     for (const PublicCase& public_case : kPublicCases) {
         benchmark_public_case(public_case);
     }

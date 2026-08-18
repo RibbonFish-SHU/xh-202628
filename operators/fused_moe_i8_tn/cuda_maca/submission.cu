@@ -73,24 +73,11 @@ static inline bool infer_public_config(
     const __nv_bfloat16* out,
     KernelConfig* config
 ) {
-    KernelConfig a_config{};
-    KernelConfig out_config{};
     size_t bytes = 0;
-    const bool have_a = allocation_bytes(a, &bytes) && config_from_bytes(bytes, true, &a_config);
-    const bool have_out = allocation_bytes(out, &bytes) && config_from_bytes(bytes, false, &out_config);
-
-    if (have_a && have_out && !same_config(a_config, out_config)) {
-        return false;
-    }
-    if (have_a) {
-        *config = a_config;
+    if (allocation_bytes(a, &bytes) && config_from_bytes(bytes, true, config)) {
         return true;
     }
-    if (have_out) {
-        *config = out_config;
-        return true;
-    }
-    return false;
+    return allocation_bytes(out, &bytes) && config_from_bytes(bytes, false, config);
 }
 
 __host__ __device__ __forceinline__ int mma_output_row_local(
