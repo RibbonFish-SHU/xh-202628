@@ -90,6 +90,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-18T17:41:15+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117056"
+    },
+    {
+      "commit": "d24ad933e17437744d24f9f0466fb79d2aefe0ff",
+      "evidence": "artifacts/raw/xpuoj/117079/terminal-top.png",
+      "experiment": "exp-20260819-008",
+      "id": "117079",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4. Case scores 83,63,88,83; user-kernel times 1014 us, 13 ms, 558 us, 4196 us. The 128x256 prefill-only G2S path reduced case 2 from 73 to 63, likely from per-K barriers, register pressure, and 48 KiB LDS occupancy cost; revert to 83fd3d2 baseline.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "81.75",
+      "rank": "23",
+      "report_summary": "Accepted 4/4 at 79.25 points and rank 23; 128x256 prefill G2S path cut case 2 from 73 to 63, so revert to 81.75 baseline and retain the validated 128x128 core.",
+      "reported_at": "2026-08-18T18:21:11+00:00",
+      "reported_to_user": true,
+      "score": "79.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-18T18:12:20+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117079"
     }
   ],
   "version": 1
