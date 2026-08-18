@@ -21,7 +21,7 @@
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
 | NVIDIA 执行链路 | verified | `exp-20260818-001` 在空闲 GPU 1 成功完成归档、隔离 staging、CUDA 12.2 编译、内核运行和结果回收；`exp-20260818-000` 的预检拒绝也已留档 |
-| Fused MoE NVIDIA 基线 | verified | `exp-20260818-002` / `ccabad8ab154` 通过独立参考正确性、4 个公开 shape 推断、完整 shape 抽样正确性、benchmark 和回归 |
+| Fused MoE NVIDIA 候选 | verified | 基线 `exp-20260818-002` / `ccabad8ab154`；packed INT8 dot 候选 `exp-20260818-003` / `3b7f02efb795` 在全部 4 个 proxy workload 提速且回归通过 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 0 | 无历史提交 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
@@ -72,14 +72,15 @@
 ## 当前技术阶段与下一步
 
 1. 当前最小正确基线源码为 `ccabad8ab1541a2ec066795877f555fff5fe4e47`，实验为 `exp-20260818-002`。
-2. 下一轮只验证 packed INT8 dot product 能否替代逐字节标量解包并降低 NVIDIA proxy 耗时；必须使用新的 commit 和实验 ID。
-3. 首次 OJ 提交前复核实时题面、语言、签名、限制和提交配额，并确保提交 commit 与已测试 commit 一致。
+2. 当前待目标验证候选为 `3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd`，实验为 `exp-20260818-003`；相对基线的 4 个 proxy/NVIDIA speedup 为 1.1766x、1.2280x、1.2467x、1.2366x。
+3. 首次 OJ 提交前复核实时题面、语言、签名、限制和提交配额，并确保提交源码精确来自 `3b7f02efb795`。目标首测需要验证 MXMACA 是否支持 `__dp4a` 以及 OJ 分配器能否暴露精确 allocation range。
 
 ## NVIDIA 执行链路验证
 
 - `exp-20260818-000` / `6020d29b591c`：请求 GPU 0 时检测到已有负载，预检以 125 拒绝；没有启动 CUDA 任务，项目锁已释放。
 - `exp-20260818-001` / `e59225b509a5`：物理 GPU 1（RTX A5000，compute 8.6）空闲；使用 CUDA 12.2 编译并运行最小内核，返回 `PASS` 和数值 42，runner 退出 0。
 - `exp-20260818-002` / `ccabad8ab154`：物理 GPU 1 上建立 Fused MoE CUDA 基线。随机、tile 边界、INT8 极值和零值回归均以 `matched_ratio=1.0`、`max_abs=0` 通过；4 个公开 shape 的 allocation-range 推断全部通过；只读输入未被修改。四个 shape 的 proxy/NVIDIA median 分别为 45.584、341.346、21.856、173.180 ms（1 次预热、5 次记录）。
+- `exp-20260818-003` / `3b7f02efb795`：只把逐字节标量 dot4 替换为 packed signed INT8 `__dp4a`。相同测试和方法下，四个 shape 的 proxy/NVIDIA median 分别为 38.742、277.980、17.531、140.046 ms；相对基线降低 15.01%-19.79% 延迟。全部正确性与回归继续以零差异通过。
 - 上述原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。
 
-`exp-20260818-002` 的性能数据只属于 proxy/NVIDIA，不证明 CUDA Maca 可编译、C500 性能或 OJ 得分。CUDA 原始指针接口不携带 shape；当前基线仅使用官方 starter 的公开 allocation-size 推断，并移除了依赖生成数据值的 fallback。XPU-OJ 内部分配器能否暴露精确 allocation range 仍是首次目标评测需要验证的风险。
+`exp-20260818-002` 和 `exp-20260818-003` 的性能数据只属于 proxy/NVIDIA，不证明 CUDA Maca 可编译、C500 性能或 OJ 得分。CUDA 原始指针接口不携带 shape；当前源码仅使用官方 starter 的公开 allocation-size 推断，并移除了依赖生成数据值的 fallback。XPU-OJ 内部分配器能否暴露精确 allocation range、MXMACA 是否接受 `__dp4a`，仍是首次目标评测需要验证的风险。
