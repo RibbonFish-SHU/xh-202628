@@ -170,16 +170,14 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk + 1], b_frag[nn][kk + 1], accum[m][nn])
 
 #define XH_LDG_A_STAGE_I(ldgi)                                                                    \
-    load_a[ldgi] = __builtin_mxc_ldg_b128_predicator(                                             \
+    load_a[ldgi] = __builtin_mxc_ldg_b128(                                                        \
         a_base + load_a_row_offset[ldgi] + load_k,                                                \
         0,                                                                                         \
+        -1,                                                                                        \
         true,                                                                                      \
         true,                                                                                      \
         false,                                                                                     \
-        false,                                                                                     \
-        row_a_mask[ldgi],                                                                          \
-        1,                                                                                         \
-        MACA_ICMP_EQ)
+        false)
 
 #define XH_LDG_B_STAGE_I(ldgi)                                                                    \
     load_b[ldgi] = __builtin_mxc_ldg_b128(                                                        \
@@ -236,7 +234,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const int col_limit = remaining_cols < kMmaTileN ? remaining_cols : kMmaTileN;
     int load_b_row[kMmaLoadsB];
     int load_a_row_offset[kMmaLoadsA];
-    bool row_a_mask[kMmaLoadsA];
     const int load_a_row_base = tid / 8;
     const int load_b_row_base = tid / 8 * kMmaLoadsB;
     const int load_k = (lane % 8) * 16;
@@ -247,7 +244,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
         const int routed_row = row_base + load_a_row_base + kMmaRowsPerLoad * i;
-        row_a_mask[i] = routed_row < em;
         load_a_row_offset[i] = routed_row * k;
     }
 #pragma unroll
@@ -267,16 +263,14 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     }
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
-        load_a[i] = __builtin_mxc_ldg_b128_predicator(
+        load_a[i] = __builtin_mxc_ldg_b128(
             a_base + load_a_row_offset[i] + load_k,
             0,
+            -1,
             true,
             true,
             false,
-            false,
-            (load_k < k_head) && row_a_mask[i],
-            1,
-            MACA_ICMP_EQ);
+            false);
     }
 
     Tensor shared_a_tensor = make_tensor(

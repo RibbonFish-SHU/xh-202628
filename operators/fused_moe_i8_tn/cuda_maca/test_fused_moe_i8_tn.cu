@@ -526,10 +526,37 @@ void run_benchmark() {
     }
 }
 
+void verify_mma_a_load_bounds() {
+    constexpr int tile_rows = 128;
+    constexpr int rows_per_load = 32;
+    constexpr int loads_per_thread = 4;
+    for (const PublicCase& public_case : kPublicCases) {
+        if ((public_case.config.em % tile_rows) != 0
+            || (public_case.config.k % 128) != 0) {
+            throw std::runtime_error(
+                std::string("public shape is not exact-tile aligned for ") + public_case.name);
+        }
+        for (int thread_id = 0; thread_id < 256; ++thread_id) {
+            for (int load = 0; load < loads_per_thread; ++load) {
+                const int local_row = thread_id / 8 + rows_per_load * load;
+                if (local_row < 0 || local_row >= tile_rows) {
+                    throw std::runtime_error("MMA A load row is outside its exact tile");
+                }
+            }
+        }
+        const int predicates_removed_per_thread =
+            loads_per_thread * (public_case.config.k / 128);
+        std::cout << "REGRESSION maca-a-load-bounds case=" << public_case.name
+                  << " exact-rows=PASS predicates-removed-per-thread="
+                  << predicates_removed_per_thread << "\n";
+    }
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
