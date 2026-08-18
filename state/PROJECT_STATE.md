@@ -20,6 +20,7 @@
 | GPU 使用策略 | authorized | GPU 0-7；最多 4 个并行 run；不抢占已有计算进程；其余阈值见 JSON |
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
+| NVIDIA 执行链路 | retrying | `exp-20260818-000` 因 GPU 0 已有负载被预检拒绝，未启动任务；证据和实验账本已保存，锁已释放 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 0 | 无历史提交 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
@@ -69,5 +70,5 @@
 
 ## 当前技术阶段与下一步
 
-1. 提交并推送远端创建结果和 SSH 隔离修正。
+1. 使用新实验 ID 在空闲 GPU 上完成 CUDA 执行链路冒烟测试，并保存 `proxy/NVIDIA` 证据。
 2. 基于已冻结的实时 OJ 合同建立最小正确版本和 NVIDIA proxy baseline；提交前再次复核页面。

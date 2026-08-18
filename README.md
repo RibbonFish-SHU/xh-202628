@@ -7,11 +7,12 @@
 | 项目 | 状态 |
 | --- | --- |
 | 本地工作区 | `E:\XH-202628\xh-202628-agent`，已创建 |
-| 本地 Git | `main` 跟踪 `origin/main`；待提交本工作流 |
+| 本地 Git | `main` 跟踪 `origin/main`；工作流已提交并推送 |
 | 远端只读探测 | 已完成 |
 | 远端执行目录 | `/home/user/lynsdu2/xh-202628-agent` 已创建并核对 |
 | GPU 使用策略 | GPU 0-7、最多 4 个并行空闲卡任务，已授权 |
 | GitHub | `git@github.com:RibbonFish-SHU/xh-202628.git`，本机 SSH 已验证 |
+| NVIDIA 执行链路 | 首次预检失败已留档，正在用空闲 GPU 重跑 |
 | Agent 发起的 XPU-OJ 提交 | 0 次 |
 
 ## 架构
