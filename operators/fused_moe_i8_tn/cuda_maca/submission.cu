@@ -244,7 +244,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const int load_k = (lane % 8) * 16;
     const int num_k_tiles = (k + kMmaTileK - 1) / kMmaTileK;
 
-    const int8_t* a_base = a_ptr + (num_k_tiles - 1) * kMmaTileK;
+    int8_t* a_base = const_cast<int8_t*>(a_ptr) + (num_k_tiles - 1) * kMmaTileK;
 
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
@@ -331,7 +331,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_LDS_B_B128(3, 0);
 
     const int loop_k_tiles = num_k_tiles - 1;
-    a_base = a_ptr;
+    a_base = const_cast<int8_t*>(a_ptr);
     for (uint32_t tile_k = 0; tile_k < loop_k_tiles; ++tile_k) {
         XH_LDG_B_STAGE_I(0);
         XH_LDG_B_STAGE_I(1);
