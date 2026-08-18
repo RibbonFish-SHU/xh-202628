@@ -1,0 +1,4 @@
+interface:
+  display_name: "XPU-OJ Operator Optimizer"
+  short_description: "Optimize operators through committed GPU test runs"
+  default_prompt: "Use $xpuoj-operator-optimizer to run one commit-traceable operator optimization iteration and prepare the next XPU-OJ submission."

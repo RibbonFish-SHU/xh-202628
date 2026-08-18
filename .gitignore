@@ -1,0 +1,35 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+secrets/
+*cookie*
+*token*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Native and generated build output
+build/
+dist/
+cmake-build-*/
+*.o
+*.so
+*.a
+
+# Large profiler/runtime artifacts
+artifacts/raw/
+profiles/
+*.nsys-rep
+*.ncu-rep
+core
+core.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

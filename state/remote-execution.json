@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "ssh_target": "lynsdu2@10.0.33.75",
+  "base_directory": "/home/user/lynsdu2/xh-202628-agent",
+  "directory_creation": {
+    "authorized": true,
+    "authorization_quote": "1、允许",
+    "authorized_at": "2026-08-18T21:06:19+08:00",
+    "created": false,
+    "created_at": null
+  },
+  "execution": {
+    "enabled": true,
+    "authorization_quote": "2、GPU策略可以更激进，以完成任务为主",
+    "authorized_at": "2026-08-18T21:06:19+08:00",
+    "allowed_gpu_ids": [0, 1, 2, 3, 4, 5, 6, 7],
+    "max_parallel_runs": 4,
+    "max_start_gpu_utilization_percent": 50,
+    "max_start_memory_used_mib": 2048,
+    "max_run_seconds": 21600,
+    "max_remote_storage_gib": 100,
+    "retention_policy": "preserve-all-until-user-approves-cleanup"
+  },
+  "toolchain": {
+    "cuda_home": "/usr/local/cuda"
+  }
+}
