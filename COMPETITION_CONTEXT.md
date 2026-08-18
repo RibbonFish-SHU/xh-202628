@@ -10,7 +10,7 @@
 - 用户已完成报名、审核通过，已取得赛题二专用 XPU-OJ 账号并成功登录。
 - 用户给出的当前打榜入口：<https://xpuoj.com/contest/12/problem/1>。
 - 已于 2026-08-18 通过用户已登录的 OJ 页面只读确认题目为 `1. Agent 推理算子库优化 - Fused MoE i8 tn`，支持 CUDA Maca、Triton、TileLang。详细实时合同快照见 Skill reference；编码和每次提交前仍须复核页面变化。
-- 尚未由 Agent 进行任何 OJ 提交。
+- 已完成 1 次工作流内 OJ 提交：`#116962`（2026-08-18 23:22:21 +08:00）提交 `3b7f02efb795` 的 CUDA Maca packed-dot 候选，因 MXMACA `xcore1000` 未声明 `__dp4a` 而 Compilation Error、0 分；已保存证据、登记并向用户报告。
 - NVIDIA 服务器：`lynsdu2@10.0.33.75`。
 - 已于 2026-08-18 完成该服务器的只读环境探测；尚未在服务器创建目录或写入文件。
 - 用户明确要求：在服务器创建任何工作目录之前，必须先取得他的明确许可。

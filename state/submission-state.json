@@ -1,5 +1,24 @@
 {
-  "version": 1,
   "pending_report": null,
-  "submissions": []
+  "submissions": [
+    {
+      "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
+      "evidence": "artifacts/raw/xpuoj/116962/compiler-error.png",
+      "experiment": "exp-20260818-003",
+      "id": "116962",
+      "language": "CUDA Maca",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "na",
+      "report_summary": "CE: MXMACA xcore1000 does not declare __dp4a; score 0; switch to tested scalar dot4 fallback.",
+      "reported_at": "2026-08-18T15:28:31+00:00",
+      "reported_to_user": true,
+      "score": "0",
+      "status": "Compilation Error",
+      "submitted_at": "2026-08-18T15:28:02+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/116962"
+    }
+  ],
+  "version": 1
 }

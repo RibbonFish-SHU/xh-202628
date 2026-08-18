@@ -21,9 +21,9 @@
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
 | NVIDIA 执行链路 | verified | `exp-20260818-001` 在空闲 GPU 1 成功完成归档、隔离 staging、CUDA 12.2 编译、内核运行和结果回收；`exp-20260818-000` 的预检拒绝也已留档 |
-| Fused MoE NVIDIA 候选 | verified | 基线 `exp-20260818-002` / `ccabad8ab154`；packed INT8 dot 候选 `exp-20260818-003` / `3b7f02efb795` 在全部 4 个 proxy workload 提速且回归通过 |
+| Fused MoE NVIDIA 候选 | target-rejected | `exp-20260818-003` / `3b7f02efb795` 在 NVIDIA 四个 workload 提速，但 OJ `#116962` 证明 MXMACA `xcore1000` 不支持 `__dp4a` |
 | C500 本地算力 | unavailable | 当前未提供 |
-| Agent OJ 提交次数 | 0 | 无历史提交 |
+| Agent OJ 提交次数 | 1 | `#116962`，CUDA Maca，Compilation Error，0 分；已报告 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
 
 机器可读远端门禁见 `state/remote-execution.json`。
@@ -71,9 +71,9 @@
 
 ## 当前技术阶段与下一步
 
-1. 当前最小正确基线源码为 `ccabad8ab1541a2ec066795877f555fff5fe4e47`，实验为 `exp-20260818-002`。
-2. 当前待目标验证候选为 `3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd`，实验为 `exp-20260818-003`；相对基线的 4 个 proxy/NVIDIA speedup 为 1.1766x、1.2280x、1.2467x、1.2366x。
-3. 首次 OJ 提交前复核实时题面、语言、签名、限制和提交配额，并确保提交源码精确来自 `3b7f02efb795`。目标首测需要验证 MXMACA 是否支持 `__dp4a` 以及 OJ 分配器能否暴露精确 allocation range。
+1. 当前最小正确标量基线源码为 `ccabad8ab1541a2ec066795877f555fff5fe4e47`，实验为 `exp-20260818-002`。
+2. `exp-20260818-003` / `3b7f02efb795` 的 `__dp4a` 优化已被 OJ `#116962` 目标编译结果否决；不得再次提交该 intrinsic。
+3. 下一轮建立新的标量 fallback commit 和实验 ID，重新执行完整 NVIDIA 门禁，再通过 OJ 验证 MXMACA 编译、allocation-range shape 推断和正确性。
 
 ## NVIDIA 执行链路验证
 
@@ -83,4 +83,8 @@
 - `exp-20260818-003` / `3b7f02efb795`：只把逐字节标量 dot4 替换为 packed signed INT8 `__dp4a`。相同测试和方法下，四个 shape 的 proxy/NVIDIA median 分别为 38.742、277.980、17.531、140.046 ms；相对基线降低 15.01%-19.79% 延迟。全部正确性与回归继续以零差异通过。
 - 上述原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。
 
-`exp-20260818-002` 和 `exp-20260818-003` 的性能数据只属于 proxy/NVIDIA，不证明 CUDA Maca 可编译、C500 性能或 OJ 得分。CUDA 原始指针接口不携带 shape；当前源码仅使用官方 starter 的公开 allocation-size 推断，并移除了依赖生成数据值的 fallback。XPU-OJ 内部分配器能否暴露精确 allocation range、MXMACA 是否接受 `__dp4a`，仍是首次目标评测需要验证的风险。
+`exp-20260818-002` 和 `exp-20260818-003` 的性能数据只属于 proxy/NVIDIA，不证明 CUDA Maca 可编译、C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`。CUDA 原始指针接口不携带 shape；当前源码仅使用官方 starter 的公开 allocation-size 推断，并移除了依赖生成数据值的 fallback。XPU-OJ 内部分配器能否暴露精确 allocation range 仍需目标正确性评测验证。
+
+## XPU-OJ 提交记录
+
+- `#116962` / `2026-08-18 23:22:21 +08:00` / `3b7f02efb795` / CUDA Maca：`Compilation Error`，0 分，0 us，0 B。错误为 `/sandbox/source/main.cu:84:12: use of undeclared identifier '__dp4a'`，编译目标 `xcore1000`。证据位于忽略目录 `artifacts/raw/xpuoj/116962/`；submission ledger 已登记、报告并清空门禁。
