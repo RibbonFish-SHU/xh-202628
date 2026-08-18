@@ -72,6 +72,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-18T17:06:38+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117034"
+    },
+    {
+      "commit": "83fd3d26e95f7d3739a9f2522afe866ed76f59cb",
+      "evidence": "artifacts/raw/xpuoj/117056/terminal-top.png",
+      "experiment": "exp-20260819-007",
+      "id": "117056",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4. Case scores 83,73,88,83; user-kernel times 1024 us, 8 ms, 558 us, 4228 us. Restoring grid_x=1 improved case 1 by one point but did not improve the 73-point prefill gate-up bottleneck.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "81.5",
+      "rank": "23",
+      "report_summary": "Accepted 4/4 at 81.75 points and rank 23; grid_x=1 improved case 1 by one point but prefill gate-up remained at 73, so retain as baseline and investigate target pipeline utilization.",
+      "reported_at": "2026-08-18T17:53:17+00:00",
+      "reported_to_user": true,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-18T17:41:15+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117056"
     }
   ],
   "version": 1
