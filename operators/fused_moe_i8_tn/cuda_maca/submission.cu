@@ -215,10 +215,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const int lane = tid % kMmaWaveSize;
     const int row_base = tile_m * kMmaTileM;
 
-    if (row_base >= em) {
-        return;
-    }
-
     __shared__ int8_t shared_data[kMmaSharedBytes];
     int8_t* shared_a = shared_data;
     int8_t* shared_b = shared_a + kMmaSharedABytes;
@@ -238,15 +234,12 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
     MmaLoad128 load_a[kMmaLoadsA];
     MmaLoad128 load_b[kMmaLoadsB];
-    const int k_head = (k - 1) % kMmaTileK + 1;
-    const int remaining_cols = n - tile_n * kMmaTileN;
-    const int col_limit = remaining_cols < kMmaTileN ? remaining_cols : kMmaTileN;
     int load_b_row[kMmaLoadsB];
     int load_a_row_offset[kMmaLoadsA];
     const int load_a_row_base = tid / 8;
     const int load_b_row_base = tid / 8 * kMmaLoadsB;
     const int load_k = (lane % 8) * 16;
-    const int num_k_tiles = (k + kMmaTileK - 1) / kMmaTileK;
+    const int num_k_tiles = k / kMmaTileK;
 
     int8_t* a_base = const_cast<int8_t*>(a_ptr) + (num_k_tiles - 1) * kMmaTileK;
 
@@ -257,18 +250,15 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     }
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsB; ++i) {
-        const int candidate_col = load_b_row_base + i;
-        load_b_row[i] = candidate_col < col_limit ? candidate_col : col_limit - 1;
-        load_b[i] = __builtin_mxc_ldg_b128_predicator(
+        load_b_row[i] = load_b_row_base + i;
+        load_b[i] = __builtin_mxc_ldg_b128(
             &(global_b(load_b_row[i], load_k, num_k_tiles - 1)),
             0,
+            -1,
             true,
             true,
             false,
-            false,
-            load_k,
-            k_head,
-            MACA_ICMP_SLT);
+            false);
     }
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
@@ -564,11 +554,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     }
 
     int output_col[2];
-    bool output_col_mask[2];
     output_col[0] = mma_output_col_local(tid, 0, 0);
     output_col[1] = mma_output_col_local(tid, 1, 0);
-    output_col_mask[0] = output_col[0] < col_limit;
-    output_col_mask[1] = output_col[1] < col_limit;
 
     float weights[2][4];
     float row_scale[2][4];
@@ -580,27 +567,23 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         for (uint32_t j = 0; j < 4; ++j) {
             const int row = output_row[i * 4 + j];
             *(reinterpret_cast<MmaInt1*>(&weights[i]) + j) =
-                __builtin_mxc_ldg_b32_predicator(
+                __builtin_mxc_ldg_b32(
                     const_cast<float*>(moe_weights_ptr + row),
                     0,
+                    -1,
                     true,
                     true,
                     false,
-                    false,
-                    row,
-                    em,
-                    MACA_ICMP_SLT);
+                    false);
             *(reinterpret_cast<MmaInt1*>(&row_scale[i]) + j) =
-                __builtin_mxc_ldg_b32_predicator(
+                __builtin_mxc_ldg_b32(
                     const_cast<float*>(scale_a_ptr + row),
                     0,
+                    -1,
                     true,
                     true,
                     false,
-                    false,
-                    row,
-                    em,
-                    MACA_ICMP_SLT);
+                    false);
         }
     }
 
@@ -609,16 +592,14 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         const float* ptr =
             scale_b_ptr + static_cast<uint64_t>(expert) * n
             + tile_n * kMmaTileN + output_col[i];
-        col_scale[i] = __builtin_mxc_ldg_b128_predicator(
+        col_scale[i] = __builtin_mxc_ldg_b128(
             const_cast<float*>(ptr),
             0,
+            -1,
             true,
             true,
             false,
-            false,
-            output_col_mask[i],
-            1,
-            MACA_ICMP_EQ);
+            false);
     }
 
     MmaBfloat16* out_base =
@@ -675,7 +656,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
                 true,
                 false,
                 false,
-                (output_row[i * 4 + j] < em) && output_col_mask[0],
+                true,
                 1,
                 MACA_ICMP_EQ);
 
@@ -694,7 +675,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
                 true,
                 false,
                 false,
-                (output_row[i * 4 + j] < em) && output_col_mask[1],
+                true,
                 1,
                 MACA_ICMP_EQ);
         }

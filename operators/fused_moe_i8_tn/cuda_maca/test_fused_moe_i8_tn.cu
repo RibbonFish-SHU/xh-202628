@@ -571,12 +571,58 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+void verify_mma_exact_tile_bounds() {
+    constexpr int tile = 128;
+    constexpr int vector_elements = 16;
+    constexpr int output_elements = 4;
+    constexpr int b_loads_per_thread = 4;
+    for (const PublicCase& public_case : kPublicCases) {
+        if ((public_case.config.em % tile) != 0
+            || (public_case.config.n % tile) != 0
+            || (public_case.config.k % tile) != 0) {
+            throw std::runtime_error(
+                std::string("public shape has a partial MMA tile for ") + public_case.name);
+        }
+        for (int thread_id = 0; thread_id < 256; ++thread_id) {
+            const int b_row_base = (thread_id / 8) * b_loads_per_thread;
+            const int load_k = (thread_id % 8) * vector_elements;
+            if (load_k < 0 || load_k + vector_elements > tile) {
+                throw std::runtime_error("MMA B load K vector is outside its exact tile");
+            }
+            for (int load = 0; load < b_loads_per_thread; ++load) {
+                const int b_row = b_row_base + load;
+                if (b_row < 0 || b_row >= tile) {
+                    throw std::runtime_error("MMA B load row is outside its exact tile");
+                }
+            }
+            for (int row_group = 0; row_group < 2; ++row_group) {
+                for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
+                    const int row = xh_fused_moe::mma_output_row_local(
+                        thread_id, row_group, row_in_group);
+                    if (row < 0 || row >= tile) {
+                        throw std::runtime_error("MMA epilogue row is outside its exact tile");
+                    }
+                }
+            }
+            for (int col_group = 0; col_group < 2; ++col_group) {
+                const int col = xh_fused_moe::mma_output_col_local(thread_id, col_group, 0);
+                if (col < 0 || col + output_elements > tile) {
+                    throw std::runtime_error("MMA epilogue vector is outside its exact tile");
+                }
+            }
+        }
+        std::cout << "REGRESSION maca-exact-tile-bounds case=" << public_case.name
+                  << " exact-mnk=PASS predicates-removed-per-thread=38\n";
+    }
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_shape_specialization();
     verify_mma_a_load_bounds();
+    verify_mma_exact_tile_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
