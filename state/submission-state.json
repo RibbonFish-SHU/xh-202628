@@ -126,6 +126,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-18T18:56:31+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117114"
+    },
+    {
+      "commit": "48cf11b848ef9daa59b0584f5a277272aef0eee3",
+      "evidence": "artifacts/raw/xpuoj/117118",
+      "experiment": "exp-20260819-011",
+      "id": "117118",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4. Case scores 83,73,89,83; user-kernel times 1012 us, 8.058 ms, 548 us, 4138 us. Case-2 constant specialization reduced the observed case-2 latency by 0.100 ms versus #117114 but did not cross the 74-point threshold; total score fell 0.25 from run-to-run variation in case 4, and the scoreboard best remains 82.25 at rank 20.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "20",
+      "report_summary": "Accepted 4/4 at 82.00 points; case 2 stayed at 73 points despite improving from 8.158 to 8.058 ms. Best remains 82.25 and rank 20, so no second OJ submission this turn.",
+      "reported_at": "2026-08-18T19:48:11+00:00",
+      "reported_to_user": true,
+      "score": "82",
+      "status": "Accepted",
+      "submitted_at": "2026-08-19T03:39:26+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117118"
     }
   ],
   "version": 1
