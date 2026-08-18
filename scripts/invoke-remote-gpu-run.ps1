@@ -11,6 +11,9 @@ param(
     [Parameter(Mandatory = $true)]
     [int[]]$GpuIds,
 
+    [ValidatePattern('^exp-[0-9]{8}-[0-9]{3}-[0-9a-f]{12}$')]
+    [string]$RetrieveExistingRun,
+
     [string]$StateFile = "state/remote-execution.json"
 )
 
@@ -134,6 +137,54 @@ foreach ($gpuId in $requestedGpuIds) {
     }
 }
 
+$localResultParent = Join-Path $repoRoot "artifacts/raw/remote-runs"
+if (-not [string]::IsNullOrWhiteSpace($RetrieveExistingRun)) {
+    if (-not $RetrieveExistingRun.StartsWith("$ExperimentId-")) {
+        throw "RetrieveExistingRun must belong to ExperimentId $ExperimentId."
+    }
+    $remoteRun = "$remoteBase/runs/$RetrieveExistingRun"
+    $remoteStatusCommand =
+        "grep -qx 'xh-202628-execution-mirror-v1' '$remoteBase/.xh-202628-execution-mirror' && " +
+        "test -f '$remoteRun/results/status.json' && cat '$remoteRun/results/status.json'"
+    $remoteStatusText = Get-NativeText -FilePath "ssh" -ArgumentList @(
+        "-o", "ClearAllForwardings=yes", $sshTarget, $remoteStatusCommand
+    )
+    $remoteStatus = $remoteStatusText | ConvertFrom-Json
+    $expectedShortCommit = $RetrieveExistingRun.Substring($RetrieveExistingRun.Length - 12)
+    if ([string]$remoteStatus.run_id -ne $RetrieveExistingRun) {
+        throw "Remote status run_id does not match the requested run."
+    }
+    if (-not ([string]$remoteStatus.commit).StartsWith($expectedShortCommit)) {
+        throw "Remote status commit does not match the run ID suffix."
+    }
+    if ([string]$remoteStatus.state -notin @("succeeded", "failed", "rejected")) {
+        throw "Remote run has not reached a terminal state: $($remoteStatus.state)"
+    }
+
+    $localResultDir = Join-Path $localResultParent $RetrieveExistingRun
+    if (Test-Path -LiteralPath $localResultDir) {
+        throw "Local result directory already exists: $localResultDir"
+    }
+    New-Item -ItemType Directory -Force -Path $localResultParent | Out-Null
+    $remoteResults = $sshTarget + ":" + $remoteRun + "/results"
+    Invoke-NativeChecked -FilePath "scp" -ArgumentList @(
+        "-o", "ClearAllForwardings=yes", "-r",
+        $remoteResults,
+        $localResultDir
+    )
+    $localStatusPath = Join-Path $localResultDir "status.json"
+    $localStatus = Get-Content -Raw -Encoding utf8 -LiteralPath $localStatusPath | ConvertFrom-Json
+    if ([string]$localStatus.run_id -ne $RetrieveExistingRun -or
+        [string]$localStatus.commit -ne [string]$remoteStatus.commit -or
+        [string]$localStatus.state -ne [string]$remoteStatus.state) {
+        throw "Retrieved status does not match the verified remote status."
+    }
+    Write-Host "Recovered remote run: $RetrieveExistingRun"
+    Write-Host "Commit: $($remoteStatus.commit)"
+    Write-Host "Local raw results: $localResultDir"
+    return
+}
+
 $status = Get-NativeText -FilePath "git" -ArgumentList @("-C", $repoRoot, "status", "--porcelain=v1", "--untracked-files=all")
 if (-not [string]::IsNullOrWhiteSpace($status)) {
     throw "Remote tests require a completely clean, committed worktree.`n$status"
@@ -162,7 +213,6 @@ if ($usedKiB -ge $maxKiB) {
     throw "Remote mirror already uses $usedKiB KiB, at or above the approved limit of $maxKiB KiB."
 }
 
-$localResultParent = Join-Path $repoRoot "artifacts/raw/remote-runs"
 $localResultDir = Join-Path $localResultParent $runId
 if (Test-Path -LiteralPath $localResultDir) {
     throw "Local result directory already exists: $localResultDir"
