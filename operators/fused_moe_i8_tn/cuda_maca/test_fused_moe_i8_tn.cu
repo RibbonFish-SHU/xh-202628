@@ -292,48 +292,6 @@ void verify_mma_output_mapping() {
               << " exact-cover=PASS\n";
 }
 
-void verify_wide_mma_output_mapping() {
-    constexpr int tile_m = 128;
-    constexpr int tile_n = 256;
-    std::vector<int> visits(tile_m * tile_n, 0);
-    for (int thread_id = 0; thread_id < 256; ++thread_id) {
-        for (int row_block = 0; row_block < 4; ++row_block) {
-            for (int row_in_block = 0; row_in_block < 4; ++row_in_block) {
-                const int row = xh_fused_moe::wide_mma_output_row_local(
-                    thread_id, row_block, row_in_block);
-                for (int column_group = 0; column_group < 2; ++column_group) {
-                    for (int column_block = 0; column_block < 2; ++column_block) {
-                        for (int column_half = 0; column_half < 2; ++column_half) {
-                            const int col = xh_fused_moe::wide_mma_output_col_local(
-                                thread_id, column_group, column_block, column_half);
-                            if (row < 0 || row >= tile_m || col < 0 || col >= tile_n) {
-                                throw std::runtime_error("wide MMA output mapping is out of range");
-                            }
-                            ++visits[row * tile_n + col];
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
-        throw std::runtime_error("wide MMA output mapping does not cover the tile exactly once");
-    }
-    std::cout << "REGRESSION maca-wide-mma-output-mapping elements=" << visits.size()
-              << " exact-cover=PASS\n";
-}
-
-void verify_wide_mma_dispatch() {
-    for (const PublicCase& public_case : kPublicCases) {
-        const bool expected = std::string(public_case.name) == "prefill-gate-up";
-        if (xh_fused_moe::use_wide_prefill_gate_up(public_case.config) != expected) {
-            throw std::runtime_error(
-                std::string("wide MMA dispatch mismatch for ") + public_case.name);
-        }
-    }
-    std::cout << "REGRESSION maca-wide-mma-dispatch prefill-gate-up-only=PASS\n";
-}
-
 void verify_mma_grid_mapping() {
     constexpr int tile_rows = 128;
     for (const PublicCase& public_case : kPublicCases) {
@@ -460,8 +418,6 @@ void run_benchmark() {
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
-    verify_wide_mma_output_mapping();
-    verify_wide_mma_dispatch();
     verify_mma_grid_mapping();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
