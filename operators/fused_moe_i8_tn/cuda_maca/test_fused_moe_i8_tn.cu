@@ -264,6 +264,34 @@ void verify_public_inference() {
     }
 }
 
+void verify_mma_output_mapping() {
+    constexpr int tile = 128;
+    std::vector<int> visits(tile * tile, 0);
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        for (int row_group = 0; row_group < 2; ++row_group) {
+            for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
+                const int row = xh_fused_moe::mma_output_row_local(
+                    thread_id, row_group, row_in_group);
+                for (int col_group = 0; col_group < 2; ++col_group) {
+                    for (int col_in_group = 0; col_in_group < 4; ++col_in_group) {
+                        const int col = xh_fused_moe::mma_output_col_local(
+                            thread_id, col_group, col_in_group);
+                        if (row < 0 || row >= tile || col < 0 || col >= tile) {
+                            throw std::runtime_error("MMA output mapping is out of range");
+                        }
+                        ++visits[row * tile + col];
+                    }
+                }
+            }
+        }
+    }
+    if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("MMA output mapping does not cover the tile exactly once");
+    }
+    std::cout << "REGRESSION maca-mma-output-mapping elements=" << visits.size()
+              << " exact-cover=PASS\n";
+}
+
 void benchmark_public_case(const PublicCase& public_case) {
     const auto& config = public_case.config;
     const size_t a_count = static_cast<size_t>(config.em) * config.k;
@@ -363,6 +391,7 @@ void run_benchmark() {
 
 void run_regression() {
     verify_public_inference();
+    verify_mma_output_mapping();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
