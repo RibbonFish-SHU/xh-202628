@@ -20,7 +20,7 @@
 | GPU 使用策略 | authorized | GPU 0-7；最多 4 个并行 run；不抢占已有计算进程；其余阈值见 JSON |
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
-| NVIDIA 执行链路 | retrying | `exp-20260818-000` 因 GPU 0 已有负载被预检拒绝，未启动任务；证据和实验账本已保存，锁已释放 |
+| NVIDIA 执行链路 | verified | `exp-20260818-001` 在空闲 GPU 1 成功完成归档、隔离 staging、CUDA 12.2 编译、内核运行和结果回收；`exp-20260818-000` 的预检拒绝也已留档 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 0 | 无历史提交 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
@@ -70,5 +70,11 @@
 
 ## 当前技术阶段与下一步
 
-1. 使用新实验 ID 在空闲 GPU 上完成 CUDA 执行链路冒烟测试，并保存 `proxy/NVIDIA` 证据。
-2. 基于已冻结的实时 OJ 合同建立最小正确版本和 NVIDIA proxy baseline；提交前再次复核页面。
+1. 基于已冻结的实时 OJ 合同建立 Fused MoE 最小正确版本、独立参考实现和 NVIDIA proxy baseline。
+2. 首次 OJ 提交前复核实时题面、语言、签名、限制和提交配额，并确保提交 commit 与已测试 commit 一致。
+
+## NVIDIA 执行链路验证
+
+- `exp-20260818-000` / `6020d29b591c`：请求 GPU 0 时检测到已有负载，预检以 125 拒绝；没有启动 CUDA 任务，项目锁已释放。
+- `exp-20260818-001` / `e59225b509a5`：物理 GPU 1（RTX A5000，compute 8.6）空闲；使用 CUDA 12.2 编译并运行最小内核，返回 `PASS` 和数值 42，runner 退出 0。
+- 两次原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。该验证只证明 NVIDIA 执行基础设施可用，不证明 Fused MoE、MACA 或 C500/OJ 性能。

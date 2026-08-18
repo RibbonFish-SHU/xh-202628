@@ -21,13 +21,22 @@ git commit -m "operator(scope): exp-YYYYMMDD-NNN hypothesis"
 
 ## 运行
 
-从仓库根目录执行，例如：
+先只读查询 GPU 状态，不要固定假定 GPU 0 空闲：
+
+```powershell
+ssh -o ClearAllForwardings=yes lynsdu2@10.0.33.75 `
+  "nvidia-smi --query-gpu=index,name,uuid,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits; nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader,nounits"
+```
+
+从 `state/remote-execution.json` 的白名单内选择需要的卡。只有利用率和显存低于当前门禁、且该 GPU UUID 没有计算进程时才可选择；显示服务等图形进程不等同于计算进程。不要为了凑满 4 个并行任务而使用忙卡。状态查询与任务启动之间存在竞态，因此 runner 会在取得项目锁后再次检查；二次检查失败时记录失败实验并使用新实验 ID 重试，不覆盖旧 run。
+
+然后从仓库根目录执行，例如（GPU ID 仅为示例，必须替换为刚核验的空闲卡）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\invoke-remote-gpu-run.ps1 `
   -ExperimentId exp-20260818-001 `
   -EntryPoint remote-jobs/exp-20260818-001.sh `
-  -GpuIds 0
+  -GpuIds 1
 ```
 
 脚本会：

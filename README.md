@@ -12,7 +12,7 @@
 | 远端执行目录 | `/home/user/lynsdu2/xh-202628-agent` 已创建并核对 |
 | GPU 使用策略 | GPU 0-7、最多 4 个并行空闲卡任务，已授权 |
 | GitHub | `git@github.com:RibbonFish-SHU/xh-202628.git`，本机 SSH 已验证 |
-| NVIDIA 执行链路 | 首次预检失败已留档，正在用空闲 GPU 重跑 |
+| NVIDIA 执行链路 | 已验证：干净 commit 归档、远端 CUDA 12.2 编译执行、结果回收均成功 |
 | Agent 发起的 XPU-OJ 提交 | 0 次 |
 
 ## 架构
