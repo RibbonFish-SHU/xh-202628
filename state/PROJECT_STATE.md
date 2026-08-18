@@ -1,6 +1,6 @@
 # Project State
 
-更新时间：2026-08-18（Asia/Shanghai）
+更新时间：2026-08-19（Asia/Shanghai）
 
 ## 门禁状态
 
@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | 报名与审核 | complete | 用户已报名并审核通过 |
 | XPU-OJ 账号 | complete | 用户已取得账号并登录 |
-| 目标 OJ 入口 | verified | `https://xpuoj.com/contest/12/problem/1`，2026-08-18 已登录页面只读核对 |
+| 目标 OJ 入口 | verified | `https://xpuoj.com/contest/12/problem/1`，2026-08-19 已登录页面复核 |
 | 目标算子 | verified | 页面标题确认 `Agent 推理算子库优化 - Fused MoE i8 tn` |
-| 实时合同快照 | partial | CUDA Maca 签名、4 组 shape、容差和环境已记录；其他语言/配额待实际提交前复核 |
+| 实时合同快照 | partial | CUDA Maca 与 Triton 签名、4 组 shape、容差和环境已复核；TileLang/配额待实际使用前复核 |
 | 本地工作区 | complete | `E:\XH-202628\xh-202628-agent` 是唯一可信源码工作区 |
 | 本地 Git 仓库 | connected | `main` 跟踪 `origin/main`；作者沿用远端提交 `Yuyang Dai <dyyshanghai@shu.edu.cn>` |
 | 远端 SSH 只读探测 | complete | 已检查 `lynsdu2@10.0.33.75`，未写入 |
@@ -21,9 +21,9 @@
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
 | NVIDIA 执行链路 | verified | `exp-20260818-001` 在空闲 GPU 1 成功完成归档、隔离 staging、CUDA 12.2 编译、内核运行和结果回收；`exp-20260818-000` 的预检拒绝也已留档 |
-| Fused MoE 目标候选 | proxy-verified | `exp-20260818-004` / `b6e4272e9d8f` 恢复 MXMACA 兼容的标量 dot4，完整 NVIDIA build/correctness/benchmark/regression 通过，待 OJ 编译与正确性验证 |
+| Fused MoE 正确基线 | target-verified | `exp-20260818-004` / `b6e4272e9d8f` 已经 OJ `#116973` 验证 MXMACA 编译和 4/4 正确性；C500 得分仅 11，不能作为性能候选 |
 | C500 本地算力 | unavailable | 当前未提供 |
-| Agent OJ 提交次数 | 1 | `#116962`，CUDA Maca，Compilation Error，0 分；已报告 |
+| Agent OJ 提交次数 | 2 | `#116962` CE/0 分；`#116973` Accepted/11 分/排名 31；均已报告 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
 
 机器可读远端门禁见 `state/remote-execution.json`。
@@ -71,9 +71,10 @@
 
 ## 当前技术阶段与下一步
 
-1. 当前待目标验证的标量候选源码为 `b6e4272e9d8f13263f38d2dbff375dbd9c6e0eb0`，实验为 `exp-20260818-004`；源码与已验证的 `exp-20260818-002` 标量基线一致。
+1. 当前目标正确性基线为 `b6e4272e9d8f13263f38d2dbff375dbd9c6e0eb0` / `exp-20260818-004`；OJ `#116973` 已验证其 MXMACA 编译、allocation-range shape 推断和 4/4 正确性，但 C500 仅 11 分、排名 31。
 2. `exp-20260818-003` / `3b7f02efb795` 的 `__dp4a` 优化已被 OJ `#116962` 目标编译结果否决；不得再次提交该 intrinsic。
-3. 下一次 OJ 提交应使用 `b6e4272e9d8f` 的 `operators/fused_moe_i8_tn/cuda_maca/submission.cu`，验证 MXMACA 编译、allocation-range shape 推断和正确性；提交前仍需执行 ledger、源码与页面核对。
+3. `#116973` 四组 C500 用户核时间为 41.947、333.856、21.359、170.268 ms，仅为官方 baseline 的 0.122x、0.068x、0.209x、0.127x；标量字节展开是主瓶颈。
+4. 下一实验 `exp-20260819-005` 应只在 MACA 后端引入官方示例已使用的 `__builtin_mxc_mma_16x16x16i8` 和 128-bit 搬运路径，并适配实时 OJ 已展开的 routed-row 语义；NVIDIA 兼容后端继续保留标量基线用于回归。
 
 ## NVIDIA 执行链路验证
 
@@ -84,8 +85,9 @@
 - `exp-20260818-004` / `b6e4272e9d8f`：根据 OJ `#116962` 的 CE 恢复官方兼容标量 dot4。全部正确性和回归零差异通过；四个 shape 的 proxy/NVIDIA median 为 43.577、341.350、21.775、173.166 ms。该轮是目标兼容性回退，不宣称保留 `__dp4a` 的 NVIDIA 提速。
 - 上述原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。
 
-`exp-20260818-002` 和 `exp-20260818-003` 的性能数据只属于 proxy/NVIDIA，不证明 CUDA Maca 可编译、C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`。CUDA 原始指针接口不携带 shape；当前源码仅使用官方 starter 的公开 allocation-size 推断，并移除了依赖生成数据值的 fallback。XPU-OJ 内部分配器能否暴露精确 allocation range 仍需目标正确性评测验证。
+`exp-20260818-002` 到 `exp-20260818-004` 的 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#116973` 已确认 allocation-range shape 推断在评测分配器中可用且标量实现 4/4 正确。下一版 MACA MMA 后端仍须通过目标编译和正确性门禁。
 
 ## XPU-OJ 提交记录
 
 - `#116962` / `2026-08-18 23:22:21 +08:00` / `3b7f02efb795` / CUDA Maca：`Compilation Error`，0 分，0 us，0 B。错误为 `/sandbox/source/main.cu:84:12: use of undeclared identifier '__dp4a'`，编译目标 `xcore1000`。证据位于忽略目录 `artifacts/raw/xpuoj/116962/`；submission ledger 已登记、报告并清空门禁。
+- `#116973` / `2026-08-18 23:46:20 +08:00` / `b6e4272e9d8f` / CUDA Maca：`Accepted`，4/4 正确，11 分，页面汇总 567 ms / 22.6 G，2026-08-19 榜单排名 31。四组用户核时间为 41.947、333.856、21.359、170.268 ms；证据位于忽略目录 `artifacts/raw/xpuoj/116973/`，submission ledger 已登记、报告并清空门禁。

@@ -9,7 +9,7 @@
       "language": "CUDA Maca",
       "notes": "",
       "operator": "Fused MoE i8 tn",
-      "previous_score": "n/a",
+      "previous_score": "0",
       "rank": "na",
       "report_summary": "CE: MXMACA xcore1000 does not declare __dp4a; score 0; switch to tested scalar dot4 fallback.",
       "reported_at": "2026-08-18T15:28:31+00:00",
@@ -18,6 +18,24 @@
       "status": "Compilation Error",
       "submitted_at": "2026-08-18T15:28:02+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/116962"
+    },
+    {
+      "commit": "b6e4272e9d8f13263f38d2dbff375dbd9c6e0eb0",
+      "evidence": "artifacts/raw/xpuoj/116973/terminal-top.png",
+      "experiment": "exp-20260818-004",
+      "id": "116973",
+      "language": "CUDA Maca",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "31",
+      "report_summary": "Accepted 4/4 at score 11 and rank 31; scalar dot4 is correct but 0.068x-0.209x baseline on C500; investigate MXMACA-supported packed INT8/MCTLASS path.",
+      "reported_at": "2026-08-18T15:56:10+00:00",
+      "reported_to_user": true,
+      "score": "11",
+      "status": "Accepted",
+      "submitted_at": "2026-08-18T15:46:20+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/116973"
     }
   ],
   "version": 1
