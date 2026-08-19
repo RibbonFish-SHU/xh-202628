@@ -162,6 +162,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-19T08:31:09+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117384"
+    },
+    {
+      "commit": "91156015d58a2bc1a6bb25c931b68af56db337e8",
+      "evidence": "artifacts/raw/xpuoj/117643",
+      "experiment": "exp-20260819-013",
+      "id": "117643",
+      "language": "CUDA Maca",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "20",
+      "report_summary": "exp-20260819-013 accepted 4/4 at 81.75, rank 20; case scores 83/73/88/83; K-loop load hoist (MLP) gave no target gain; best remains 82.25 (#117114); evidence points to a hard ~1.0 TB/s bandwidth ceiling for the current core.",
+      "reported_at": "2026-08-19T09:20:41+00:00",
+      "reported_to_user": true,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-19T09:19:04+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117643"
     }
   ],
   "version": 1
