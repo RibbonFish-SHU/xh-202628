@@ -198,6 +198,24 @@
       "status": "Wrong Answer",
       "submitted_at": "2026-08-19T10:22:11+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117721"
+    },
+    {
+      "commit": "27c93a4",
+      "evidence": "artifacts/raw/xpuoj/117737",
+      "experiment": "exp-20260819-015",
+      "id": "117737",
+      "language": "Triton",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "20",
+      "report_summary": "exp-20260819-015 first Triton candidate accepted 4/4 at 69.5 (cases 72/56/80/70; 1982us/17ms/1047us/9ms); Triton-on-MACA path validated end to end but ~0.47 TB/s on case 2 vs 1.0 TB/s for the CUDA Maca core; best remains 82.25 (#117114), rank 20; next: Triton pipeline tuning (num_stages/BLOCK_K).",
+      "reported_at": "2026-08-19T10:35:50+00:00",
+      "reported_to_user": true,
+      "score": "69.5",
+      "status": "Accepted",
+      "submitted_at": "2026-08-19T10:35:41+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117737"
     }
   ],
   "version": 1
