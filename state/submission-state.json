@@ -234,6 +234,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-19T10:56:04+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117753"
+    },
+    {
+      "commit": "677f957",
+      "evidence": "artifacts/raw/xpuoj/117948",
+      "experiment": "exp-20260819-017",
+      "id": "117948",
+      "language": "Triton",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "20",
+      "report_summary": "exp-20260819-017 num_warps=4 scored 69.5 (71/57/80/70), identical to warps=8 baseline; stages and warps knobs both dead, Triton case 2 pinned ~0.47 TB/s / ~113 TOPS, evidence of tl.dot int8 lowering cap; next: BLOCK_K diagnostic to confirm compute cap before deciding the Triton route fate.",
+      "reported_at": "2026-08-19T13:53:01+00:00",
+      "reported_to_user": true,
+      "score": "69.5",
+      "status": "Accepted",
+      "submitted_at": "2026-08-19T13:53:01+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117948"
     }
   ],
   "version": 1
