@@ -144,6 +144,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-19T03:39:26+08:00",
       "url": "https://xpuoj.com/contest/12/submissions/117118"
+    },
+    {
+      "commit": "d680180dbaed13013f38ce0aa022ef925106e8e1",
+      "evidence": "artifacts/raw/xpuoj/117384",
+      "experiment": "exp-20260819-012",
+      "id": "117384",
+      "language": "CUDA Maca",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "20",
+      "report_summary": "User-submitted exp-20260819-012 accepted 4/4 at 81.75, rank 20; case scores 83/73/88/83; no target gain from remaining predicate removal; best remains 82.25 (#117114).",
+      "reported_at": "2026-08-19T08:33:10+00:00",
+      "reported_to_user": true,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-19T08:31:09+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117384"
     }
   ],
   "version": 1
