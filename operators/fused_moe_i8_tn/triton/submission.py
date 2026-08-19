@@ -130,7 +130,7 @@ def run_kernel(
             BLOCK_N=block_n,
             BLOCK_K=block_k,
             num_warps=8,
-            num_stages=3,
+            num_stages=4,
         )
     else:
         block_m = 16
