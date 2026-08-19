@@ -252,6 +252,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-19T13:53:01+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117948"
+    },
+    {
+      "commit": "89fc315",
+      "evidence": "artifacts/raw/xpuoj/117984",
+      "experiment": "exp-20260819-018",
+      "id": "117984",
+      "language": "Triton",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "20",
+      "report_summary": "exp-20260819-018 BLOCK_K=32 scored 58 (59/43/71/59; case2 17->29 ms with 2x dot calls): runtime scales with dot-call count, confirming the tl.dot int8 lowering compute cap; Triton route closed at 69.5 vs CUDA Maca 82.25; revert Triton file to the 69.5 baseline config and return to CUDA Maca core experiments.",
+      "reported_at": "2026-08-19T14:15:46+00:00",
+      "reported_to_user": true,
+      "score": "58",
+      "status": "Accepted",
+      "submitted_at": "2026-08-19T14:15:46+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117984"
     }
   ],
   "version": 1
