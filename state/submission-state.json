@@ -216,6 +216,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-19T10:35:41+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117737"
+    },
+    {
+      "commit": "1247732",
+      "evidence": "artifacts/raw/xpuoj/117753",
+      "experiment": "exp-20260819-016",
+      "id": "117753",
+      "language": "Triton",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "20",
+      "report_summary": "exp-20260819-016 num_stages=4 scored 68.75 (71/55/80/69), slightly worse than stages=3 baseline 69.5; deeper pipeline does not help, Triton case 2 still ~0.45 TB/s; next knob num_warps 8->4 to match the proven 256-thread geometry.",
+      "reported_at": "2026-08-19T10:56:05+00:00",
+      "reported_to_user": true,
+      "score": "68.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-19T10:56:04+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117753"
     }
   ],
   "version": 1
