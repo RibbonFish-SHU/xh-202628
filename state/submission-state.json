@@ -180,6 +180,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-19T09:19:04+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117643"
+    },
+    {
+      "commit": "f2b5015107c6b5ad656fbda1edba25075f6d54ef",
+      "evidence": "artifacts/raw/xpuoj/117721",
+      "experiment": "exp-20260819-014",
+      "id": "117721",
+      "language": "CUDA Maca",
+      "notes": "",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "n/a",
+      "rank": "20",
+      "report_summary": "exp-20260819-014 WA 0 pts: bsm double-buffer with arrive(64+8) produced wrong results on the sample (all 4 cases skipped); non-zero arrive count semantics rejected on target. Source reverted to exp-013 state (228a296). Best remains 82.25 (#117114), rank 20.",
+      "reported_at": "2026-08-19T10:22:30+00:00",
+      "reported_to_user": true,
+      "score": "0",
+      "status": "Wrong Answer",
+      "submitted_at": "2026-08-19T10:22:11+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/117721"
     }
   ],
   "version": 1
