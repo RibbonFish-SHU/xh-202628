@@ -114,7 +114,7 @@ def run_kernel(
     if a_rows == em:
         block_m = 128
         block_n = 128
-        block_k = 64
+        block_k = 32
         grid = (triton.cdiv(em, block_m), triton.cdiv(n, block_n))
         _routed_dot_kernel[grid](
             a,
@@ -129,7 +129,7 @@ def run_kernel(
             BLOCK_M=block_m,
             BLOCK_N=block_n,
             BLOCK_K=block_k,
-            num_warps=4,
+            num_warps=8,
             num_stages=3,
         )
     else:
