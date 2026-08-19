@@ -326,22 +326,22 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     for (uint32_t tile_k = 0; tile_k < loop_k_tiles; ++tile_k) {
         XH_LDG_B_STAGE_I(0);
         XH_LDG_B_STAGE_I(1);
+        XH_LDG_B_STAGE_I(2);
+        XH_LDG_B_STAGE_I(3);
+        XH_LDG_A_STAGE_I(0);
+        XH_LDG_A_STAGE_I(1);
         XH_MMA_STAGE_MNKX2(0, 0, 0);
         XH_LDS_B_B128(4, 0);
         XH_MMA_STAGE_MNKX2(0, 0, 2);
         XH_LDS_B_B128(5, 0);
         XH_MMA_STAGE_MNKX2(0, 1, 0);
         XH_LDS_B_B128(6, 0);
-        XH_LDG_B_STAGE_I(2);
         XH_MMA_STAGE_MNKX2(0, 1, 2);
         XH_LDS_B_B128(7, 0);
         XH_MMA_STAGE_MNKX2(0, 2, 0);
-        XH_LDG_B_STAGE_I(3);
         XH_MMA_STAGE_MNKX2(0, 2, 2);
         XH_MMA_STAGE_MNKX2(0, 3, 0);
-        XH_LDG_A_STAGE_I(0);
         XH_MMA_STAGE_MNKX2(0, 3, 2);
-        XH_LDG_A_STAGE_I(1);
 
         XH_MMA_STAGE_MNKX2(0, 4, 0);
         XH_LDS_A_B128(0, 1);
