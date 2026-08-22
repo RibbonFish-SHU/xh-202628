@@ -552,11 +552,198 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+void verify_mma_epilogue_half_strip() {
+    constexpr int threads = 256;
+    constexpr int tile = 128;
+    constexpr int row_groups = 2;
+    constexpr int rows_per_group = 4;
+    constexpr int halves = 2;
+    constexpr int values_per_store = 4;
+    constexpr int output_vectors = 16;
+    constexpr int scalars_per_thread = output_vectors * values_per_store;
+
+    struct ScalarIdentity {
+        int output_scalar;
+        int row_slot;
+        int scale_col;
+        bool predicate;
+        uint16_t value_bits;
+    };
+
+    const int row_limits[] = {1, 127, 128};
+    const int col_limits[] = {1, 63, 64, 65, 127, 128};
+    int modeled_scale_loads = 0;
+    int modeled_stores = 0;
+    int modeled_row_factor_multiplies = 0;
+
+    for (int row_limit : row_limits) {
+        for (int col_limit : col_limits) {
+            std::vector<int> address_visits(tile * tile, 0);
+            for (int thread_id = 0; thread_id < threads; ++thread_id) {
+                ScalarIdentity baseline[scalars_per_thread] = {};
+                ScalarIdentity candidate[scalars_per_thread] = {};
+                int baseline_visits[scalars_per_thread] = {};
+                int candidate_visits[scalars_per_thread] = {};
+                int row_factor_visits[row_groups * rows_per_group] = {};
+                int candidate_row_factor_visits[row_groups * rows_per_group] = {};
+                float candidate_row_factor[row_groups * rows_per_group] = {};
+                int baseline_position = 0;
+                int candidate_position = 0;
+
+                for (int i = 0; i < row_groups; ++i) {
+                    for (int j = 0; j < rows_per_group; ++j) {
+                        const int row_slot = i * rows_per_group + j;
+                        const int row = xh_fused_moe::mma_output_row_local(
+                            thread_id, i, j);
+                        const float row_scale = (row_slot + 1) * 0.03125f;
+                        const float weight = (row_slot + 3) * -0.0625f;
+                        const float row_factor = row_scale * weight;
+                        ++row_factor_visits[row_slot];
+
+                        for (int half = 0; half < halves; ++half) {
+                            const int output_vector = i * 8 + 2 * j + half;
+                            const int output_col = xh_fused_moe::mma_output_col_local(
+                                thread_id, half, 0);
+                            const bool predicate = row < row_limit && output_col < col_limit;
+                            ++modeled_stores;
+                            for (int component = 0; component < values_per_store; ++component) {
+                                const int output_scalar =
+                                    output_vector * values_per_store + component;
+                                const int scale_col = output_col + component;
+                                const float output_value = (output_scalar - 31) * 0.125f;
+                                const float col_scale = (scale_col + 1) * 0.015625f;
+                                const float scaled = output_value * (col_scale * row_factor);
+                                baseline[baseline_position++] = {
+                                    output_scalar,
+                                    row_slot,
+                                    scale_col,
+                                    predicate,
+                                    float_to_bf16(scaled),
+                                };
+                                ++baseline_visits[output_scalar];
+                            }
+                        }
+                    }
+                }
+
+                for (int row_slot = 0;
+                     row_slot < row_groups * rows_per_group;
+                     ++row_slot) {
+                    const float row_scale = (row_slot + 1) * 0.03125f;
+                    const float weight = (row_slot + 3) * -0.0625f;
+                    candidate_row_factor[row_slot] = row_scale * weight;
+                    ++candidate_row_factor_visits[row_slot];
+                }
+
+                for (int half = 0; half < halves; ++half) {
+                    const int output_col = xh_fused_moe::mma_output_col_local(
+                        thread_id, half, 0);
+                    ++modeled_scale_loads;
+                    for (int i = 0; i < row_groups; ++i) {
+                        for (int j = 0; j < rows_per_group; ++j) {
+                            const int row_slot = i * rows_per_group + j;
+                            const int row = xh_fused_moe::mma_output_row_local(
+                                thread_id, i, j);
+                            const int output_vector = i * 8 + 2 * j + half;
+                            const float row_factor = candidate_row_factor[row_slot];
+                            const bool predicate = row < row_limit && output_col < col_limit;
+                            for (int component = 0; component < values_per_store; ++component) {
+                                const int output_scalar =
+                                    output_vector * values_per_store + component;
+                                const int scale_col = output_col + component;
+                                const float output_value = (output_scalar - 31) * 0.125f;
+                                const float col_scale = (scale_col + 1) * 0.015625f;
+                                const float scaled = output_value * (col_scale * row_factor);
+                                candidate[candidate_position++] = {
+                                    output_scalar,
+                                    row_slot,
+                                    scale_col,
+                                    predicate,
+                                    float_to_bf16(scaled),
+                                };
+                                ++candidate_visits[output_scalar];
+                                if (row_limit == tile && col_limit == tile) {
+                                    ++address_visits[row * tile + scale_col];
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (baseline_position != scalars_per_thread
+                    || candidate_position != scalars_per_thread) {
+                    throw std::runtime_error("epilogue scalar cardinality changed");
+                }
+                for (int scalar = 0; scalar < scalars_per_thread; ++scalar) {
+                    if (baseline_visits[scalar] != 1 || candidate_visits[scalar] != 1) {
+                        throw std::runtime_error("epilogue output scalar is not visited once");
+                    }
+                }
+                for (int row_slot = 0; row_slot < row_groups * rows_per_group; ++row_slot) {
+                    if (row_factor_visits[row_slot] != 1
+                        || candidate_row_factor_visits[row_slot] != 1) {
+                        throw std::runtime_error("epilogue row factor multiply count changed");
+                    }
+                    ++modeled_row_factor_multiplies;
+                }
+
+                for (int baseline_index = 0;
+                     baseline_index < scalars_per_thread;
+                     ++baseline_index) {
+                    const ScalarIdentity& expected = baseline[baseline_index];
+                    bool found = false;
+                    for (int candidate_index = 0;
+                         candidate_index < scalars_per_thread;
+                         ++candidate_index) {
+                        const ScalarIdentity& actual = candidate[candidate_index];
+                        if (actual.output_scalar != expected.output_scalar) {
+                            continue;
+                        }
+                        found = actual.row_slot == expected.row_slot
+                            && actual.scale_col == expected.scale_col
+                            && actual.predicate == expected.predicate
+                            && actual.value_bits == expected.value_bits;
+                        break;
+                    }
+                    if (!found) {
+                        throw std::runtime_error(
+                            "half-strip epilogue differs from row-major baseline");
+                    }
+                }
+            }
+
+            if (row_limit == tile && col_limit == tile
+                && !std::all_of(
+                    address_visits.begin(),
+                    address_visits.end(),
+                    [](int count) { return count == 1; })) {
+                throw std::runtime_error("half-strip epilogue does not cover output tile once");
+            }
+        }
+    }
+
+    const int models = static_cast<int>(
+        sizeof(row_limits) / sizeof(row_limits[0])
+        * sizeof(col_limits) / sizeof(col_limits[0]));
+    if (modeled_scale_loads != models * threads * halves
+        || modeled_stores != models * threads * row_groups * rows_per_group * halves
+        || modeled_row_factor_multiplies
+            != models * threads * row_groups * rows_per_group) {
+        throw std::runtime_error("half-strip epilogue operation count changed");
+    }
+
+    std::cout << "REGRESSION maca-epilogue-half-strip scalars/thread="
+              << scalars_per_thread << " scale-loads/thread=2 stores/thread=16"
+              << " row-factor-multiplies/thread=8 exact-bits=PASS"
+              << " predicates=PASS output-cover=PASS\n";
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
+    verify_mma_epilogue_half_strip();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

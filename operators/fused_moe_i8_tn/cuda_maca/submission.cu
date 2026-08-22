@@ -563,7 +563,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
     float weights[2][4];
     float row_scale[2][4];
-    MmaFloat4 col_scale[2];
+    MmaFloat4 col_scale;
 
 #pragma unroll
     for (uint32_t i = 0; i < 2; ++i) {
@@ -595,23 +595,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         }
     }
 
-#pragma unroll
-    for (uint32_t i = 0; i < 2; ++i) {
-        const float* ptr =
-            scale_b_ptr + static_cast<uint64_t>(expert) * n
-            + tile_n * kMmaTileN + output_col[i];
-        col_scale[i] = __builtin_mxc_ldg_b128_predicator(
-            const_cast<float*>(ptr),
-            0,
-            true,
-            true,
-            false,
-            false,
-            output_col_mask[i],
-            1,
-            MACA_ICMP_EQ);
-    }
-
     MmaBfloat16* out_base =
         reinterpret_cast<MmaBfloat16*>(out_ptr) + tile_n * kMmaTileN;
     MmaFloat2 zero2 = {0.0f, 0.0f};
@@ -621,73 +604,67 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     for (uint32_t i = 0; i < 2; ++i) {
 #pragma unroll
         for (uint32_t j = 0; j < 4; ++j) {
-            float values[8];
-            values[0] = output[i * 8 + 2 * j][0];
-            values[1] = output[i * 8 + 2 * j][1];
-            values[2] = output[i * 8 + 2 * j][2];
-            values[3] = output[i * 8 + 2 * j][3];
-            values[4] = output[i * 8 + 2 * j + 1][0];
-            values[5] = output[i * 8 + 2 * j + 1][1];
-            values[6] = output[i * 8 + 2 * j + 1][2];
-            values[7] = output[i * 8 + 2 * j + 1][3];
-
             row_scale[i][j] *= weights[i][j];
-            MmaFloat2 row_scale2 = {row_scale[i][j], row_scale[i][j]};
-            MmaFloat2 scales[4];
-            scales[0] = __builtin_mxc_pk_fma_f32(
-                reinterpret_cast<MmaFloat2*>(&col_scale[0])[0], row_scale2, zero2);
-            scales[1] = __builtin_mxc_pk_fma_f32(
-                reinterpret_cast<MmaFloat2*>(&col_scale[0])[1], row_scale2, zero2);
-            scales[2] = __builtin_mxc_pk_fma_f32(
-                reinterpret_cast<MmaFloat2*>(&col_scale[1])[0], row_scale2, zero2);
-            scales[3] = __builtin_mxc_pk_fma_f32(
-                reinterpret_cast<MmaFloat2*>(&col_scale[1])[1], row_scale2, zero2);
-            *reinterpret_cast<MmaFloat2*>(&values[0]) = __builtin_mxc_pk_fma_f32(
-                *reinterpret_cast<MmaFloat2*>(&values[0]), scales[0], zero2);
-            *reinterpret_cast<MmaFloat2*>(&values[2]) = __builtin_mxc_pk_fma_f32(
-                *reinterpret_cast<MmaFloat2*>(&values[2]), scales[1], zero2);
-            *reinterpret_cast<MmaFloat2*>(&values[4]) = __builtin_mxc_pk_fma_f32(
-                *reinterpret_cast<MmaFloat2*>(&values[4]), scales[2], zero2);
-            *reinterpret_cast<MmaFloat2*>(&values[6]) = __builtin_mxc_pk_fma_f32(
-                *reinterpret_cast<MmaFloat2*>(&values[6]), scales[3], zero2);
+        }
+    }
 
-            XH_CVT_F32_TO_BF16(
-                packed_out[0],
-                reinterpret_cast<uint*>(&values)[0],
-                reinterpret_cast<uint*>(&values)[1]);
-            XH_CVT_F32_TO_BF16(
-                packed_out[1],
-                reinterpret_cast<uint*>(&values)[2],
-                reinterpret_cast<uint*>(&values)[3]);
-            __builtin_mxc_stg_b64_predicator(
-                out_base + static_cast<uint64_t>(output_row[i * 4 + j]) * n + output_col[0],
-                0,
-                *reinterpret_cast<uint64_t*>(&packed_out),
-                true,
-                false,
-                false,
-                (output_row[i * 4 + j] < em) && output_col_mask[0],
-                1,
-                MACA_ICMP_EQ);
+#pragma unroll
+    for (uint32_t half = 0; half < 2; ++half) {
+        const float* ptr =
+            scale_b_ptr + static_cast<uint64_t>(expert) * n
+            + tile_n * kMmaTileN + output_col[half];
+        col_scale = __builtin_mxc_ldg_b128_predicator(
+            const_cast<float*>(ptr),
+            0,
+            true,
+            true,
+            false,
+            false,
+            output_col_mask[half],
+            1,
+            MACA_ICMP_EQ);
 
-            XH_CVT_F32_TO_BF16(
-                packed_out[0],
-                reinterpret_cast<uint*>(&values)[4],
-                reinterpret_cast<uint*>(&values)[5]);
-            XH_CVT_F32_TO_BF16(
-                packed_out[1],
-                reinterpret_cast<uint*>(&values)[6],
-                reinterpret_cast<uint*>(&values)[7]);
-            __builtin_mxc_stg_b64_predicator(
-                out_base + static_cast<uint64_t>(output_row[i * 4 + j]) * n + output_col[1],
-                0,
-                *reinterpret_cast<uint64_t*>(&packed_out),
-                true,
-                false,
-                false,
-                (output_row[i * 4 + j] < em) && output_col_mask[1],
-                1,
-                MACA_ICMP_EQ);
+#pragma unroll
+        for (uint32_t i = 0; i < 2; ++i) {
+#pragma unroll
+            for (uint32_t j = 0; j < 4; ++j) {
+                float values[4];
+                values[0] = output[i * 8 + 2 * j + half][0];
+                values[1] = output[i * 8 + 2 * j + half][1];
+                values[2] = output[i * 8 + 2 * j + half][2];
+                values[3] = output[i * 8 + 2 * j + half][3];
+
+                MmaFloat2 row_scale2 = {row_scale[i][j], row_scale[i][j]};
+                MmaFloat2 scales[2];
+                scales[0] = __builtin_mxc_pk_fma_f32(
+                    reinterpret_cast<MmaFloat2*>(&col_scale)[0], row_scale2, zero2);
+                scales[1] = __builtin_mxc_pk_fma_f32(
+                    reinterpret_cast<MmaFloat2*>(&col_scale)[1], row_scale2, zero2);
+                *reinterpret_cast<MmaFloat2*>(&values[0]) = __builtin_mxc_pk_fma_f32(
+                    *reinterpret_cast<MmaFloat2*>(&values[0]), scales[0], zero2);
+                *reinterpret_cast<MmaFloat2*>(&values[2]) = __builtin_mxc_pk_fma_f32(
+                    *reinterpret_cast<MmaFloat2*>(&values[2]), scales[1], zero2);
+
+                XH_CVT_F32_TO_BF16(
+                    packed_out[0],
+                    reinterpret_cast<uint*>(&values)[0],
+                    reinterpret_cast<uint*>(&values)[1]);
+                XH_CVT_F32_TO_BF16(
+                    packed_out[1],
+                    reinterpret_cast<uint*>(&values)[2],
+                    reinterpret_cast<uint*>(&values)[3]);
+                __builtin_mxc_stg_b64_predicator(
+                    out_base + static_cast<uint64_t>(output_row[i * 4 + j]) * n
+                        + output_col[half],
+                    0,
+                    *reinterpret_cast<uint64_t*>(&packed_out),
+                    true,
+                    false,
+                    false,
+                    (output_row[i * 4 + j] < em) && output_col_mask[half],
+                    1,
+                    MACA_ICMP_EQ);
+            }
         }
     }
 
