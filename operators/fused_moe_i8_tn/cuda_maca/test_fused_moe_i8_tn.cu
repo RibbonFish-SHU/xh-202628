@@ -478,8 +478,19 @@ void verify_adjacent_m_pair_mapping() {
                 std::string("adjacent-M pair dispatch mismatch for ") + public_case.name);
         }
     }
+
+    int paired_barriers = 0;
+    for (int paired_tile = 0; paired_tile < 2; ++paired_tile) {
+        paired_barriers += xh_fused_moe::mma_adjacent_m_needs_shared_barrier(
+            paired_tile, 2);
+    }
+    if (paired_barriers != 1
+        || xh_fused_moe::mma_adjacent_m_needs_shared_barrier(0, 1)) {
+        throw std::runtime_error("adjacent-M shared barrier policy mismatch");
+    }
     std::cout << "REGRESSION maca-adjacent-m-pair arbitrary-order=PASS"
-              << " all-same-leaders=128/256 case2-only=PASS\n";
+              << " all-same-leaders=128/256 case2-only=PASS"
+              << " shared-boundary=PASS barrier-count=1/2\n";
 }
 
 void benchmark_public_case(const PublicCase& public_case) {

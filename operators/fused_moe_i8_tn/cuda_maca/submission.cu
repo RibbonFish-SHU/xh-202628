@@ -53,6 +53,13 @@ __host__ __device__ __forceinline__ int mma_adjacent_m_tile_count(
     return (tile_m & 1) == 0 && tile_m + 1 < grid_m && expert == next_expert ? 2 : 1;
 }
 
+__host__ __device__ __forceinline__ bool mma_adjacent_m_needs_shared_barrier(
+    int paired_tile,
+    int tile_count
+) {
+    return paired_tile + 1 < tile_count;
+}
+
 static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs) {
     return lhs.em == rhs.em && lhs.n == rhs.n && lhs.k == rhs.k;
 }
@@ -578,6 +585,10 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_MMA_STAGE_MNKX2(1, 6, 6);
     XH_MMA_STAGE_MNKX2(1, 7, 4);
     XH_MMA_STAGE_MNKX2(1, 7, 6);
+
+    if (mma_adjacent_m_needs_shared_barrier(paired_tile, tile_count)) {
+        __syncthreadshared();
+    }
 
     MmaInt4 output[kMmaOutputVectors];
 #pragma unroll
