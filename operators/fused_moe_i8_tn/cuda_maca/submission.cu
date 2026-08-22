@@ -538,6 +538,22 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_MMA_STAGE_MNKX2(1, 7, 4);
     XH_MMA_STAGE_MNKX2(1, 7, 6);
 
+    MmaInt4 output[kMmaOutputVectors];
+#pragma unroll
+    for (uint32_t i = 0; i < 2; ++i) {
+#pragma unroll
+        for (uint32_t j = 0; j < 4; ++j) {
+            output[i * 8 + 2 * j][0] = accum[i][0][j];
+            output[i * 8 + 2 * j][1] = accum[i][2][j];
+            output[i * 8 + 2 * j][2] = accum[i][4][j];
+            output[i * 8 + 2 * j][3] = accum[i][6][j];
+            output[i * 8 + 2 * j + 1][0] = accum[i][1][j];
+            output[i * 8 + 2 * j + 1][1] = accum[i][3][j];
+            output[i * 8 + 2 * j + 1][2] = accum[i][5][j];
+            output[i * 8 + 2 * j + 1][3] = accum[i][7][j];
+        }
+    }
+
     int output_col[2];
     bool output_col_mask[2];
     output_col[0] = mma_output_col_local(tid, 0, 0);
@@ -606,14 +622,14 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
         for (uint32_t j = 0; j < 4; ++j) {
             float values[8];
-            values[0] = accum[i][0][j];
-            values[1] = accum[i][2][j];
-            values[2] = accum[i][4][j];
-            values[3] = accum[i][6][j];
-            values[4] = accum[i][1][j];
-            values[5] = accum[i][3][j];
-            values[6] = accum[i][5][j];
-            values[7] = accum[i][7][j];
+            values[0] = output[i * 8 + 2 * j][0];
+            values[1] = output[i * 8 + 2 * j][1];
+            values[2] = output[i * 8 + 2 * j][2];
+            values[3] = output[i * 8 + 2 * j][3];
+            values[4] = output[i * 8 + 2 * j + 1][0];
+            values[5] = output[i * 8 + 2 * j + 1][1];
+            values[6] = output[i * 8 + 2 * j + 1][2];
+            values[7] = output[i * 8 + 2 * j + 1][3];
 
             row_scale[i][j] *= weights[i][j];
             MmaFloat2 row_scale2 = {row_scale[i][j], row_scale[i][j]};

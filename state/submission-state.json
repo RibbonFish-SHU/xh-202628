@@ -470,6 +470,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T17:19:03+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122822"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-028-direct-accum",
+      "claim_id": "claim-54f85611e83f4c4994a5b1061250f2ac",
+      "commit": "1f79ee2a70912b1c38f4cf082ff6dd7188c437dd",
+      "evidence": "artifacts/raw/xpuoj/122853",
+      "experiment": "exp-20260823-028",
+      "id": "122853",
+      "language": "CUDA Maca",
+      "notes": "Direct accumulator mapping preserved correctness (4/4) but scored 81.75; cases 83/73/88/83, below formal best 82.25; reject and restore formal best.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T17:59:55+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122853"
     }
   ],
   "version": 2
