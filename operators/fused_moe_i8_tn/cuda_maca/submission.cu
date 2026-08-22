@@ -32,34 +32,6 @@ static inline int mma_grid_x(const KernelConfig& config) {
     return grid_m < group_tiles ? grid_m : group_tiles;
 }
 
-static inline bool use_case2_adjacent_m_pair(const KernelConfig& config) {
-    return config.em == 32768 && config.n == 4096 && config.k == 7168;
-}
-
-__host__ __device__ __forceinline__ bool mma_adjacent_m_is_follower(
-    int tile_m,
-    int expert,
-    int previous_expert
-) {
-    return (tile_m & 1) != 0 && expert == previous_expert;
-}
-
-__host__ __device__ __forceinline__ int mma_adjacent_m_tile_count(
-    int tile_m,
-    int grid_m,
-    int expert,
-    int next_expert
-) {
-    return (tile_m & 1) == 0 && tile_m + 1 < grid_m && expert == next_expert ? 2 : 1;
-}
-
-__host__ __device__ __forceinline__ bool mma_adjacent_m_needs_shared_barrier(
-    int paired_tile,
-    int tile_count
-) {
-    return paired_tile + 1 < tile_count;
-}
-
 static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs) {
     return lhs.em == rhs.em && lhs.n == rhs.n && lhs.k == rhs.k;
 }
@@ -179,7 +151,6 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <bool kPairAdjacentM>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -229,13 +200,13 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     dst = __builtin_mxc_byte_perm(src0, src1, 0x03020706)
 
     const int tid = threadIdx.x;
-    const int physical_tile_m = blockIdx.x + blockIdx.z * gridDim.x;
+    const int tile_m = blockIdx.x + blockIdx.z * gridDim.x;
     const int tile_n = blockIdx.y;
     const int wave = tid / kMmaWaveSize;
     const int lane = tid % kMmaWaveSize;
-    const int first_row_base = physical_tile_m * kMmaTileM;
+    const int row_base = tile_m * kMmaTileM;
 
-    if (first_row_base >= em) {
+    if (row_base >= em) {
         return;
     }
 
@@ -243,26 +214,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     int8_t* shared_a = shared_data;
     int8_t* shared_b = shared_a + kMmaSharedABytes;
 
-    const int grid_m = (em + kMmaTileM - 1) / kMmaTileM;
-    const int first_expert = expert_ids_ptr[physical_tile_m];
-    if (kPairAdjacentM
-        && physical_tile_m > 0
-        && mma_adjacent_m_is_follower(
-            physical_tile_m, first_expert, expert_ids_ptr[physical_tile_m - 1])) {
-        return;
-    }
-    const int tile_count = kPairAdjacentM && physical_tile_m + 1 < grid_m
-        ? mma_adjacent_m_tile_count(
-            physical_tile_m,
-            grid_m,
-            first_expert,
-            expert_ids_ptr[physical_tile_m + 1])
-        : 1;
-
-    for (int paired_tile = 0; paired_tile < tile_count; ++paired_tile) {
-    const int tile_m = physical_tile_m + paired_tile;
-    const int row_base = tile_m * kMmaTileM;
-    const int expert = first_expert;
+    const int expert = expert_ids_ptr[tile_m];
     const int8_t* expert_b =
         b_ptr + static_cast<uint64_t>(expert) * n * k;
 
@@ -586,10 +538,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_MMA_STAGE_MNKX2(1, 7, 4);
     XH_MMA_STAGE_MNKX2(1, 7, 6);
 
-    if (mma_adjacent_m_needs_shared_barrier(paired_tile, tile_count)) {
-        __syncthreadshared();
-    }
-
     MmaInt4 output[kMmaOutputVectors];
 #pragma unroll
     for (uint32_t i = 0; i < 2; ++i) {
@@ -742,7 +690,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
                 MACA_ICMP_EQ);
         }
     }
-    }
 
 #undef XH_CVT_F32_TO_BF16
 #undef XH_LDS_B_B128
@@ -887,33 +834,18 @@ static inline void launch(
         (config.n + kMmaTileN - 1) / kMmaTileN,
         (grid_m + grid_x - 1) / grid_x
     );
-    if (use_case2_adjacent_m_pair(config)) {
-        fused_moe_i8_tn_mma_kernel<true><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
-    } else {
-        fused_moe_i8_tn_mma_kernel<false><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
-    }
+    fused_moe_i8_tn_mma_kernel<<<grid, block>>>(
+        a,
+        b_col_major,
+        scale_a,
+        scale_b,
+        moe_weights,
+        expert_ids,
+        out,
+        config.em,
+        config.n,
+        config.k
+    );
 #else
     constexpr int BLOCK_M = 32;
     constexpr int BLOCK_N = 32;

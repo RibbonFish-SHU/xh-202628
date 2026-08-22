@@ -414,6 +414,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T19:37:10+08:00",
       "url": "https://xpuoj.com/contest/12/submissions/122383"
+    },
+    {
+      "commit": "542372e3560c7575aefcb3b4f7e25698f702b8bf",
+      "evidence": "artifacts/raw/xpuoj/122458",
+      "experiment": "exp-20260822-025",
+      "id": "122458",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; case scores 83/73/88/83; exact user-kernel times 1016 us/8180 us/552 us/4154 us; page summary 14 ms/22.6 G. LF source 33,993 bytes, SHA-256 d32a150236c14cfa350c2d953027efd7819752f693fed5d38e5f0c453afa445d. The shared-boundary barrier fixed exp-024 correctness risk, but adjacent-M pairing did not improve case 2 and total score remained below the 82.25 best; live rank 25.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": "exp-025 accepted 4/4 at 81.75 (83/73/88/83; 1016us/8180us/552us/4154us); race fixed but adjacent-M pairing did not beat the 82.25 best; live rank 25; revert to 8c519e6 source.",
+      "reported_at": "2026-08-22T13:21:12+00:00",
+      "reported_to_user": true,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T20:57:26+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122458"
     }
   ],
   "version": 1
