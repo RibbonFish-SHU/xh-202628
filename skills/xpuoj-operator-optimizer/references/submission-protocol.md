@@ -22,7 +22,7 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py doctor
 
 继续前确认：
 
-1. 当前是 primary worktree 的干净 `main`，没有 active claim、待报告结果、mirror dirty 或 digest drift。
+1. 当前是 primary worktree 的干净 `main`，没有 active claim、mirror dirty 或 digest drift；延迟用户报告不是 blocker。
 2. 候选状态为 `ready`，且其完整 integrated commit 已经测试、记录并位于 `main` 历史。
 3. 实时比赛、题目 URL、可见标题、语言、配额/冷却与本地合同一致。
 4. commit 中待提交 source 的 blob、长度和 SHA-256 与候选记录一致。
@@ -97,11 +97,23 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py `
   --notes "<short-technical-note>"
 ```
 
-`finalize` 先把终态和 `awaiting_report` 原子提交到 SQLite，再导出 tracked mirror。若进程在两步之间中断，SQLite 保留真相且 `mirror_dirty=1` 会阻止后续操作；重试相同 finalize 或由 Main Agent 执行 `export-ledger` 修复。active claim 在用户报告完成前始终处于 `awaiting_report`。
+`finalize` 原子写入终态、把 candidate 标记为 `finalized`、删除 active claim，再导出 tracked mirror。若进程在数据库提交与镜像导出之间中断，SQLite 保留真相且 `mirror_dirty=1` 会阻止后续操作；使用相同 claim 和终态参数重试 `finalize`，或由 Main Agent 执行 `export-ledger` 修复。镜像一致后 OJ 槽位已经释放，`reported_to_user=false` 只表示等待汇总，不阻止下一次 claim。
 
-## 4. 真实用户报告与 Release
+## 4. 静默连续运行与延迟汇报
 
-立即使用 `templates/submission-report.md` 向用户发送一次独立可见的报告，至少包含：
+在用户人为打断之前，不主动发送逐次打榜报告，也不等待用户回复。每次 `finalize` 后仍须完成：
+
+1. 根据结果更新正式 best 或恢复 formal-best source。
+2. 更新 `state/PROJECT_STATE.md`、实验状态和 tracked mirror。
+3. commit/push，保持 primary `main` 干净，然后继续下一候选。
+
+用户主动打断、询问状态、任务结束或出现必须由用户处理的阻塞时，先读取全部延迟结果：
+
+```powershell
+python skills/xpuoj-operator-optimizer/scripts/submission_controller.py unreported-list
+```
+
+使用 `templates/submission-report.md` 发送一次汇总，每个提交至少包含：
 
 - 提交 ID 与时间、完整 Git commit、语言和实现方案。
 - 正确性/终态、总分、排名或各测试点结果。
@@ -109,7 +121,7 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py `
 - NVIDIA proxy 证据及其不能代表 C500 的边界。
 - 失败原因、keep/reject/investigate 决策和下一假设。
 
-只有消息实际发送后才能标记 reported：
+只有汇总消息实际发送后，才逐条标记 reported：
 
 ```powershell
 python skills/xpuoj-operator-optimizer/scripts/submission_controller.py `
@@ -119,11 +131,9 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py `
   --message-ref "user-update-<timestamp-or-stable-reference>"
 ```
 
-`report` 同样先原子提交 SQLite，再导出 mirror；只有两者一致后下一次操作才会放行。随后更新 `state/PROJECT_STATE.md` 和实验状态，commit/push 正式记录，并再次运行 `check`。下一次 `claim` 还要求 primary `main` 完全干净。
+`report` 只记录该结果已经向用户送达，不负责释放 OJ 槽位，也不影响正在进行的其他 claim。它会导出 mirror；汇总完成后把报告元数据 commit/push。
 
 若提交没有成为正式最佳，下一候选集成前必须从明确的 formal-best commit 恢复 submission source，验证 exact source hash，commit/push 恢复。不得在 losing candidate 上叠加未经独立验证的组合。
-
-如果当前交互环境不能在两次提交之间向用户真正发送消息，本回合最多提交一次，并保持 `awaiting_report` 直到报告完成。
 
 ## 5. Crash Reconciliation
 
@@ -134,7 +144,7 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py `
 | `claimed` | 明确确认没有点击后，`abandon --claim ... --reason ...` |
 | `armed` | 检查 OJ 历史；找到记录就 `bind`，确认不存在才执行有证据的 `abandon --confirmed-no-submit` |
 | `judging` | 继续按已绑定 ID 等待/抓取终态，然后 `finalize` |
-| `awaiting_report` | 先发送或保守地重复发送用户报告，再执行 `report` |
+| legacy `awaiting_report` | 使用完全相同的终态参数重试 `finalize`，释放槽位并保留延迟报告 |
 
 点击后崩溃且尚未 bind 时，以时间、题目、语言、源码长度/hash 对照 OJ 历史。不能确认时保持 `armed`，报告阻塞状态；绝不能假定未提交并重复点击。
 
@@ -152,6 +162,6 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py abandon 
 
 控制器拒绝不存在或越界的证据文件、早于 `arm` 的核对时间和不匹配的 source hash，并把证据 SHA-256 写入审计事件。
 
-claim、arm、bind、finalize 和 report 对相同参数可安全重试；任何冲突参数都会失败。`armed/judging` 不会因 controller takeover 或时间流逝自动解除。
+claim、arm、bind、finalize 和 report 对相同参数可安全重试；任何冲突参数都会失败。`armed/judging` 不会因 controller takeover 或时间流逝自动解除。已 `finalized` 的 claim 即使 active row 已删除，也可用原参数幂等重试。
 
 若 `doctor` 报告 tracked mirror digest drift，先检查 Git diff。只有确认 SQLite 应覆盖该文件时，才使用 `export-ledger --reconcile-drift --expected-current-sha256 <doctor-actual>`；摘要变化或缺少显式确认都会拒绝覆盖。

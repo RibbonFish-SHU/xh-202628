@@ -49,7 +49,7 @@ TERMINAL_STATUSES = {
     "timeout",
     "wrong answer",
 }
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 MIRROR_DRIFT_SAFE_COMMANDS = {
     "candidate-list",
     "check",
@@ -58,6 +58,7 @@ MIRROR_DRIFT_SAFE_COMMANDS = {
     "controller-takeover",
     "doctor",
     "export-ledger",
+    "unreported-list",
 }
 MIRROR_DIRTY_SAFE_COMMANDS = MIRROR_DRIFT_SAFE_COMMANDS | {"finalize", "report"}
 
@@ -487,12 +488,6 @@ def import_mirror(connection: sqlite3.Connection, mirror: Path) -> None:
         if not isinstance(submissions, list):
             raise SystemExit(f"Invalid submission mirror schema: {mirror}")
         pending = data.get("pending_report")
-        if pending is not None:
-            raise SystemExit(
-                "Legacy mirror contains pending_report and cannot be migrated safely. "
-                "Resolve and report it with the legacy ledger before initializing the "
-                "centralized controller."
-            )
         for item in submissions:
             if not isinstance(item, dict) or not isinstance(item.get("id"), str):
                 raise SystemExit(f"Invalid submission entry in {mirror}")
@@ -730,11 +725,6 @@ def command_controller_release(args: argparse.Namespace, connection: sqlite3.Con
         owner = require_controller(connection, args.controller_token)
         if active_row(connection):
             raise SystemExit("Cannot release the controller while a claim is active.")
-        unreported = connection.execute(
-            "SELECT id FROM submissions WHERE reported_to_user=0 LIMIT 1"
-        ).fetchone()
-        if unreported:
-            raise SystemExit(f"Cannot release while submission {unreported['id']} is unreported.")
         connection.execute("DELETE FROM controller WHERE singleton=1")
         event(connection, owner["owner"], "controller-release", str(owner["epoch"]))
     print("Controller released.")
@@ -975,11 +965,6 @@ def command_claim(args: argparse.Namespace, connection: sqlite3.Connection) -> i
             return 0
         if active:
             raise SystemExit("Another XPU-OJ claim is already active.")
-        unreported = connection.execute(
-            "SELECT id FROM submissions WHERE reported_to_user=0 LIMIT 1"
-        ).fetchone()
-        if unreported:
-            raise SystemExit(f"Submission {unreported['id']} must be reported first.")
         candidate = connection.execute(
             "SELECT * FROM candidates WHERE candidate_id=?", (args.candidate,)
         ).fetchone()
@@ -1141,26 +1126,50 @@ def command_finalize(args: argparse.Namespace, connection: sqlite3.Connection) -
     require_main(args.repo, clean=False)
     status = terminal_status(args.status)
     submission_id: str
+    expected = (
+        args.operator, status, args.score, args.previous_score, args.rank,
+        args.url, args.evidence, args.notes,
+    )
+
+    def recorded_values(row: sqlite3.Row | None) -> tuple[Any, ...] | None:
+        if row is None:
+            return None
+        return (
+            row["operator"], row["status"], row["score"], row["previous_score"],
+            row["rank"], row["url"], row["evidence"], row["notes"],
+        )
+
     with immediate(connection):
         controller = require_controller(connection, args.controller_token)
-        claim = get_claim(connection, args.claim)
-        if claim["phase"] == "awaiting_report":
+        claim = active_row(connection)
+        if claim is None or claim["claim_id"] != args.claim:
+            existing = connection.execute(
+                "SELECT * FROM submissions WHERE claim_id=?", (args.claim,)
+            ).fetchone()
+            if recorded_values(existing) == expected:
+                submission_id = existing["id"]
+            elif existing is None:
+                raise SystemExit(f"Claim is absent and has no finalized result: {args.claim}")
+            else:
+                raise SystemExit("Finalization conflicts with the existing terminal result.")
+        elif claim["phase"] == "awaiting_report":
             existing = connection.execute(
                 "SELECT * FROM submissions WHERE id=?", (claim["submission_id"],)
             ).fetchone()
-            expected = (
-                args.operator, status, args.score, args.previous_score, args.rank,
-                args.url, args.evidence, args.notes,
-            )
-            recorded = None if existing is None else (
-                existing["operator"], existing["status"], existing["score"],
-                existing["previous_score"], existing["rank"], existing["url"],
-                existing["evidence"], existing["notes"],
-            )
-            if recorded == expected:
-                submission_id = existing["id"]
-            else:
+            if recorded_values(existing) != expected:
                 raise SystemExit("Finalization conflicts with the existing terminal result.")
+            submission_id = existing["id"]
+            now = utc_now()
+            connection.execute(
+                "UPDATE candidates SET status='finalized',updated_at=? WHERE candidate_id=?",
+                (now, claim["candidate_id"]),
+            )
+            connection.execute("DELETE FROM active_claim WHERE singleton=1")
+            connection.execute("UPDATE meta SET value='1' WHERE key='mirror_dirty'")
+            event(
+                connection, controller["owner"], "finalize-release", submission_id,
+                {"previous_phase": "awaiting_report"},
+            )
         else:
             if claim["phase"] != "judging":
                 raise SystemExit(f"Cannot finalize a claim in phase {claim['phase']}.")
@@ -1187,13 +1196,10 @@ def command_finalize(args: argparse.Namespace, connection: sqlite3.Connection) -
                 ),
             )
             connection.execute(
-                "UPDATE active_claim SET phase='awaiting_report',updated_at=? WHERE singleton=1",
-                (now,),
-            )
-            connection.execute(
-                "UPDATE candidates SET status='awaiting_report',updated_at=? WHERE candidate_id=?",
+                "UPDATE candidates SET status='finalized',updated_at=? WHERE candidate_id=?",
                 (now, candidate["candidate_id"]),
             )
+            connection.execute("DELETE FROM active_claim WHERE singleton=1")
             connection.execute("UPDATE meta SET value='1' WHERE key='mirror_dirty'")
             event(
                 connection, controller["owner"], "finalize", submission_id,
@@ -1202,7 +1208,7 @@ def command_finalize(args: argparse.Namespace, connection: sqlite3.Connection) -
     export_mirror_after_commit(
         connection, args.mirror, args.controller_token
     )
-    print(json.dumps({"submission_id": submission_id, "phase": "awaiting_report"}, sort_keys=True))
+    print(json.dumps({"submission_id": submission_id, "phase": "finalized"}, sort_keys=True))
     return 0
 
 
@@ -1216,9 +1222,7 @@ def command_report(args: argparse.Namespace, connection: sqlite3.Connection) -> 
             "SELECT * FROM submissions WHERE id=?", (args.submission_id,)
         ).fetchone()
         if existing is None:
-            raise SystemExit(
-                f"Submission row is missing for awaiting report: {args.submission_id}"
-            )
+            raise SystemExit(f"Submission row is missing: {args.submission_id}")
         if existing["reported_to_user"]:
             if (
                 existing["report_summary"] != args.summary
@@ -1228,8 +1232,6 @@ def command_report(args: argparse.Namespace, connection: sqlite3.Connection) -> 
                 raise SystemExit("Report retry conflicts with the recorded report metadata.")
             already_reported = True
         else:
-            if claim is None or claim["phase"] != "awaiting_report" or claim["submission_id"] != args.submission_id:
-                raise SystemExit("Submission is not the active awaiting-report gate.")
             now = args.timestamp or utc_now()
             connection.execute(
                 "UPDATE submissions SET reported_to_user=1,reported_at=?,report_summary=?,message_ref=? WHERE id=?",
@@ -1237,9 +1239,14 @@ def command_report(args: argparse.Namespace, connection: sqlite3.Connection) -> 
             )
             connection.execute(
                 "UPDATE candidates SET status='reported',updated_at=? WHERE candidate_id=?",
-                (now, claim["candidate_id"]),
+                (now, existing["candidate_id"]),
             )
-            connection.execute("DELETE FROM active_claim WHERE singleton=1")
+            if (
+                claim is not None
+                and claim["phase"] == "awaiting_report"
+                and claim["submission_id"] == args.submission_id
+            ):
+                connection.execute("DELETE FROM active_claim WHERE singleton=1")
             connection.execute("UPDATE meta SET value='1' WHERE key='mirror_dirty'")
             event(connection, controller["owner"], "report", args.submission_id, {"message_ref": args.message_ref})
     export_mirror_after_commit(
@@ -1248,7 +1255,7 @@ def command_report(args: argparse.Namespace, connection: sqlite3.Connection) -> 
     if already_reported:
         print(f"Submission {args.submission_id} was already reported; mirror verified.")
     else:
-        print(f"Marked submission {args.submission_id} reported; submit slot released.")
+        print(f"Marked deferred submission {args.submission_id} reported.")
     return 0
 
 
@@ -1303,17 +1310,15 @@ def command_abandon(args: argparse.Namespace, connection: sqlite3.Connection) ->
 def command_check(args: argparse.Namespace, connection: sqlite3.Connection) -> int:
     active = active_row(connection)
     unreported = connection.execute(
-        "SELECT id FROM submissions WHERE reported_to_user=0 ORDER BY seq LIMIT 1"
-    ).fetchone()
+        "SELECT COUNT(*) FROM submissions WHERE reported_to_user=0"
+    ).fetchone()[0]
     dirty = connection.execute(
         "SELECT value FROM meta WHERE key='mirror_dirty'"
     ).fetchone()[0]
     blockers: list[str] = []
     if active:
         blockers.append(f"active claim {active['claim_id']} is {active['phase']}")
-    if unreported:
-        blockers.append(f"submission {unreported['id']} is unreported")
-    if dirty == "1" and not active and not unreported:
+    if dirty == "1":
         blockers.append("tracked submission mirror needs export/repair")
     mirror_expected, mirror_actual = mirror_digests(connection, args.mirror)
     if mirror_expected != mirror_actual:
@@ -1321,7 +1326,38 @@ def command_check(args: argparse.Namespace, connection: sqlite3.Connection) -> i
     if blockers:
         print("BLOCKED: " + "; ".join(blockers), file=os.sys.stderr)
         return 2
-    print("PASS: centralized XPU-OJ submit slot is clear.")
+    print(
+        "PASS: centralized XPU-OJ submit slot is clear; "
+        f"deferred user reports={unreported}."
+    )
+    return 0
+
+
+def command_unreported_list(
+    args: argparse.Namespace, connection: sqlite3.Connection
+) -> int:
+    rows = connection.execute(
+        "SELECT * FROM submissions WHERE reported_to_user=0 ORDER BY seq"
+    ).fetchall()
+    result = [
+        {
+            "id": row["id"],
+            "submitted_at": row["submitted_at"],
+            "operator": row["operator"],
+            "language": row["language"],
+            "commit": row["commit_sha"],
+            "experiment": row["experiment"],
+            "status": row["status"],
+            "score": row["score"],
+            "previous_score": row["previous_score"],
+            "rank": row["rank"],
+            "url": row["url"],
+            "evidence": row["evidence"],
+            "notes": row["notes"],
+        }
+        for row in rows
+    ]
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
 
@@ -1433,7 +1469,7 @@ def command_doctor(args: argparse.Namespace, connection: sqlite3.Connection) -> 
         "recovery_key_present": recovery_key_path(args.db).is_file(),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    return 1 if unreported > 1 or dirty == "1" or mirror_expected != mirror_actual else 0
+    return 1 if dirty == "1" or mirror_expected != mirror_actual else 0
 
 
 def add_controller_token(parser: argparse.ArgumentParser) -> None:
@@ -1531,6 +1567,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_controller_token(abandon)
 
     commands.add_parser("check")
+    commands.add_parser("unreported-list")
     export = commands.add_parser("export-ledger")
     export.add_argument("--reconcile-drift", action="store_true")
     export.add_argument("--expected-current-sha256")
@@ -1568,6 +1605,7 @@ def main() -> int:
             "report": command_report,
             "abandon": command_abandon,
             "check": command_check,
+            "unreported-list": command_unreported_list,
             "export-ledger": command_export,
             "doctor": command_doctor,
         }

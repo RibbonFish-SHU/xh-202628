@@ -36,7 +36,7 @@
 
 ## 3. 权限与远端门禁
 
-当前允许在本地仓库内创建和改进工作流、源码、测试、实验记录并管理 Git。用户也要求在条件满足后由工作 Agent 提交 XPU-OJ，并在每次评测结束后报告。
+当前允许在本地仓库内创建和改进工作流、源码、测试、实验记录并管理 Git。用户要求工作 Agent 持续运行直到被人为打断：每次 XPU-OJ 终态必须内部登记，但逐次用户报告延迟到用户主动打断、询问状态、任务结束或必须由用户处理的阻塞。
 
 当前授权状态：
 
@@ -103,12 +103,12 @@ XPU-OJ 采用“并行候选、单通道提交”。共享控制数据库位于 
 2. 使用稳定 request ID 执行 `claim`，核对实时题目、语言、提交文件、commit、源码 hash 与全部正确性/回归证据。
 3. 在最终 submit click 前执行 `arm`；通过用户已登录的本地浏览器只点击一次，得到 numeric submission ID 后立即 `bind`。
 4. 等待评测终态，保存时间、状态、分数、排名/测试点和页面证据，再执行 `finalize`。
-5. 立即向用户发送一次独立可见的报告；报告发出后才执行 `report` 释放全局槽位。
-6. 更新正式状态和 tracked mirror，commit/push 后再次 `check`，之后才能 claim 下一份候选。
+5. `finalize` 原子登记终态并释放全局槽位；更新正式状态和 tracked mirror，完成必要的 best 恢复与 commit/push 后继续下一候选，不等待用户报告。
+6. 用户主动打断、询问状态、任务结束或出现必须由用户处理的阻塞时，运行 `unreported-list`，汇总尚未报告的结果；消息实际发出后再逐条执行 `report`。
 
 若结果未成为正式最佳，Main Agent 必须从明确的 formal-best commit 恢复 submission source，核对 exact source hash，提交并 push 恢复后才能集成下一候选。禁止在 losing candidate 上隐式叠加新改动。
 
-旧 `submission_ledger.py record/report` 在中心数据库存在后禁止使用。编译错误、Wrong Answer、运行错误、超时、取消和零分都算一次提交，必须登记并报告。`armed` 或 `judging` 不能超时自动清除；崩溃后必须核对 OJ 历史。若当前回合无法在两次提交间向用户报告，则该回合最多提交一次。
+旧 `submission_ledger.py record/report` 在中心数据库存在后禁止使用。编译错误、Wrong Answer、运行错误、超时、取消和零分都算一次提交，必须登记；未向用户报告的终态不阻止下一次 claim。`armed` 或 `judging` 不能超时自动清除；崩溃后必须核对 OJ 历史。
 
 OJ 评测等待期间，其他 Subagent 可以继续生产、测试和入队候选，但任何 Agent 都不能启动第二个 OJ 提交。
 

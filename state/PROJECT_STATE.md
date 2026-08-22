@@ -1,6 +1,6 @@
 # Project State
 
-更新时间：2026-08-22（Asia/Shanghai）
+更新时间：2026-08-23（Asia/Shanghai）
 
 ## 门禁状态
 
@@ -44,7 +44,9 @@
 | Fused MoE case-2 128x64 occupancy 候选 | target-regressed | `exp-20260822-026` / `fa736f1cef8e` 只为 case 2 增加 128x64x128、256-thread 内核，将 LDS 从 32 KiB 降到 24 KiB 并减半 accumulator/B-fragment state，但 CTA 与名义 A 流量翻倍。OJ `#122553` 4/4 Accepted、80.75 分（83、69、88、83；1016 us、10 ms、552 us、4143 us）；case 2 相对最佳下降 4 分且约慢 23%，占用收益不足以抵消额外 CTA/A 请求，活动源码与测试已精确恢复 `8c519e6`。 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 25 | 原 24 次记录不变；新增 `#122553` Accepted/80.75/exp-026；已登记并报告，当前最佳仍为 82.25、实时排名 25 |
-| 待向用户报告的提交 | none | 账本门禁清空 |
+| 待向用户报告的提交 | none | 当前没有延迟汇总结果；后续未报告终态不构成提交门禁 |
+| 并行编排工作流 | implemented | Main Agent 统一管理隔离 Subagent、最多 4 路 NVIDIA run 和唯一 XPU-OJ active claim |
+| 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
 机器可读远端门禁见 `state/remote-execution.json`。
 
@@ -104,7 +106,7 @@
 11. `exp-20260819-013` / `91156015d58a` 基于 roofline 证据：四个公开 case 的实测时间全部贴合「唯一数据量 ÷ 1.0 TB/s」（误差 1-4%），kernel 为 DRAM 带宽 bound，case 2 的 8.02 GB 流量下限 8.02 ms 对实测 8.058 ms。该实验只把 6 个可提升的 next-tile LDG（B0-B3、A0-A1）移到 K 循环头部发射以提高内存级并行度；A2/A3 因跨迭代寄存器旋转（STS 消费上一迭代的值）必须留在原位，已在源码检查中固化。纯指令重排，地址、MMA/LDS/STS 次序、共享内存、网格、特化和 NVIDIA fallback 均不变。物理 GPU 1 上 source check（含新增顺序断言）、build、完整 correctness/benchmark/regression 通过；proxy 四组 median 为 45.535、338.703、21.529、171.744 ms。OJ `#117643` 随后以 4/4 Accepted 验证目标编译与正确性：四点 83、73、88、83，用户核时间 1011 us、8 ms、555 us、4153 us，总分 81.75，榜单最佳仍为 82.25、排名 20。MLP 重排无目标收益。
 12. 结论与下一步：连续三次目标实验（case-2 常量特化、剩余谓词移除、MLP 负载提升）都无法移动 case 2 的 73 分 / 约 8.05 ms，且每次四点总分都在 81.75-82.25 噪声带内。强证据表明当前 128x128 流水核心已贴近 C500 有效带宽天花板（约 1.0 TB/s），继续盲提交边际调度改动没有意义。剩余候选方向：官方 `__builtin_mxc_ldg_b128_bsm` + `__builtin_mxc_arrive` 异步 G2S 两级流水（需先确认 arrive 非零计数语义，WA 风险需一次提交验证）；或暂停 case 2 性能投入，保留 82.25 版本，转入作品材料（Agent/Skill 可复现性、文档、报告）与 C500 算力获取。下一次 OJ 提交前必须先有明确的新假设。
 13. `exp-20260819-014` / `f2b5015107c6` 把 G2S 从 LDG→寄存器→STS 改为官方 `__builtin_mxc_ldg_b128_bsm` 异步直达 shared + 64 KiB 双缓冲，循环内 `__builtin_mxc_arrive(64 + 8)` + `__builtin_mxc_barrier_inst()` 等待上一 tile 批次，peeled 末 tile 用 `arrive(64)`；per-tile LDS/MMA 消费序列与旧尾部逐行一致，epilogue、特化、NVIDIA fallback 未动。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过；proxy 四组 median 为 45.529、338.724、21.530、171.744 ms。OJ `#117721` 终态 Wrong Answer、0 分、样例失败且四点全 Skipped：`arrive` 非零计数（或双缓冲延迟等待时序）在目标上不成立，异步 G2S 假设被否决。源码已由 `228a296` 回退到 `91156015d58a`（exp-013）状态。
-14. **方向决策更新（2026-08-19 晚，用户明确指示）**：用户否决了第 13 点曾有过的"转入作品材料"想法，明确当前目标为持续刷榜，要求按标准工作流（单假设 → commit → 远端 proxy → 一次 OJ 提交 → record/report → 下一假设）循环推进。榜单最佳冻结事实不变：`8c519e6c1bb5` / `#117114` 82.25 分、排名 20；活动源码为 `228a296`（exp-013 状态）。15. `exp-20260819-015` / `27c93a4` 开辟第二条技术路线：Triton routed-dot 内核（官方 starter 语义，128x128x64、num_warps=8、num_stages=3、bf16 store，保留 gather 回退）。远端无 Triton 环境，仅做 py_compile 静态检查后直连 OJ。`#117737` 以 4/4 Accepted 验证 Triton 3.0.0-on-MACA 编译与正确性：四点 72、56、80、70，用户核时间 1982 us、17 ms、1047 us、9 ms，总分 69.5，榜单最佳仍为 82.25、排名 20。case 2 约 0.47 TB/s，说明开箱配置离 CUDA Maca 手工核心（1.0 TB/s）差约 2.1x；Triton 路线的价值取决于调参空间（num_stages、BLOCK_K、num_warps、L2 swizzle）。
+14. **方向决策更新（2026-08-19 晚，用户明确指示）**：用户否决了第 13 点曾有过的"转入作品材料"想法，明确当前目标为持续刷榜，要求按当时的标准工作流（单假设 → commit → 远端 proxy → 一次 OJ 提交 → record/report → 下一假设）循环推进；其中逐次报告门禁已被 2026-08-23 的静默连续模式取代。榜单最佳冻结事实不变：`8c519e6c1bb5` / `#117114` 82.25 分、排名 20；活动源码为 `228a296`（exp-013 状态）。15. `exp-20260819-015` / `27c93a4` 开辟第二条技术路线：Triton routed-dot 内核（官方 starter 语义，128x128x64、num_warps=8、num_stages=3、bf16 store，保留 gather 回退）。远端无 Triton 环境，仅做 py_compile 静态检查后直连 OJ。`#117737` 以 4/4 Accepted 验证 Triton 3.0.0-on-MACA 编译与正确性：四点 72、56、80、70，用户核时间 1982 us、17 ms、1047 us、9 ms，总分 69.5，榜单最佳仍为 82.25、排名 20。case 2 约 0.47 TB/s，说明开箱配置离 CUDA Maca 手工核心（1.0 TB/s）差约 2.1x；Triton 路线的价值取决于调参空间（num_stages、BLOCK_K、num_warps、L2 swizzle）。
 16. 已否决方向汇总：`__dp4a`、128x256 G2S、case-2 常量特化（无显示分收益）、剩余谓词移除、MLP 负载提升、bsm 异步 G2S 双缓冲（WA）、Triton stages/warps/BLOCK_K 调参、paired 64x128 CTA、paired-N 512-thread CTA、case-2 2-N 全 M 扫描调度、case-2 蛇形 N 调度、cooperative epilogue-scale LDS cache、adjacent-M pairing，以及 128x64 occupancy。`#121831` 证明拆小 M 会因 B/CTA 翻倍退化到 12 ms；`#121947` 证明用 64 KiB LDS 的大 CTA 跨 N 复用 A 只能得到 9 ms / 70 分；`#122045` 证明不改 CTA 资源、仅用 2-N 分组换取 B 复用也会因 A 重载退化到 9 ms / 71 分；`#122083` 证明保留完整 32-N A 复用、只改变相邻 M tile 的 N 方向也没有目标收益；`#122125` 证明减少约 180 MiB 名义 epilogue scale 流量只移动 5 us，且两次全 CTA barrier 抵消收益；`#122458` 证明修复同步后的 adjacent-M pairing 仍无收益；`#122553` 证明缩小 N tile 后的占用收益不足以抵消 CTA/A 流量翻倍。
 17. 下一轮只能从 82.25 分的 32 KiB、256-thread 128x128 核心出发，优先寻找既保留完整 32-N A 复用、又不扩大 CTA、不增加 A/B 字节数且不新增全 CTA epilogue barrier 的结构性改动。候选必须先从官方 MXMACA 材料或已验证指令语义中建立地址、同步和流量证明，再分配新实验 ID；不得恢复 `__dp4a`、128x256、64x128、128x64、paired-N 512-thread、2-N 全 M 扫描、非零 `arrive`、cooperative scale cache 或已关闭的 Triton 调参线。
 18. `exp-20260822-020` / `0639295edcea` 从最佳 128x128 核心出发，仅将 case 2 的相邻两个 N tile 融合到一个 512 线程 CTA。原交接建议的 48 KiB 单 A buffer 存在跨 subgroup 的半 tile STS→LDS 竞态，已在提交前否决；实际候选使用 active/stage 双 A buffer，并只在原有 stage-complete barrier 后交换，两个 subgroup 的 B buffer 仍隔离，总 LDS 64 KiB。物理 GPU 1 上已提交快照通过 source hash、build、三组差分正确性、四组 benchmark、精确输出/网格/load/swizzle/shared-layout 和只读回归；proxy median 为 44.836、341.317、21.527、171.753 ms。OJ `#121947` 随后在 xcore1000 编译并 4/4 Accepted，但仅 81.00 分；case 2 为 70 分 / 9 ms，相对最佳下降 3 分 / 约 10%，假设被否决，活动源码已精确恢复 `8c519e6` blob `58c7b241...`。

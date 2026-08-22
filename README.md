@@ -15,7 +15,7 @@
 | GitHub | `git@github.com:RibbonFish-SHU/xh-202628.git`，本机 SSH 已验证 |
 | NVIDIA 执行链路 | 已验证：干净 commit 归档、远端 CUDA 12.2 编译执行、结果回收均成功 |
 | XPU-OJ 历史 | 以 `state/submission-state.json` 的最新 tracked mirror 和中心控制器为准 |
-| 提交控制 | 共享 SQLite controller；并行候选、单 active claim、逐次报告 |
+| 提交控制 | 共享 SQLite controller；并行候选、单 active claim、延迟汇总报告 |
 
 ## 架构
 
@@ -52,4 +52,4 @@ xh-202628-agent/
   skills/xpuoj-operator-optimizer/
 ```
 
-核心原则是：一条 lane 一个显式 baseline、一个假设、一个候选 commit 和一份可复现 handoff；候选并行生产，OJ 串行提交，每次终态先向用户报告再释放提交槽位。
+核心原则是：一条 lane 一个显式 baseline、一个假设、一个候选 commit 和一份可复现 handoff；候选并行生产，OJ 串行提交，终态落盘后立即释放槽位，用户主动打断时再汇总未报告结果。

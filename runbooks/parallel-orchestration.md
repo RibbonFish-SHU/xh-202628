@@ -8,7 +8,7 @@
 2. 每个 Subagent 只在 Main Agent 创建的独立 branch/worktree 中工作，不能切换或修改 `main`。
 3. Main Agent 为每条 lane 分配唯一 batch/experiment/candidate、当前 `worktree_base_commit`、显式 `performance_baseline_commit` 和一个可证伪假设。任何 Agent 都不能把两种 baseline 混为一谈。
 4. Subagent 可以并行构建、测试并入队候选；只有 Main Agent 能把候选提升为 `ready`、claim OJ 槽位或改变提交记录。
-5. OJ 同时最多一个 active claim。终态结果必须先登记、真实报告给用户，再释放槽位。
+5. OJ 同时最多一个 active claim。终态结果必须先登记；`finalize` 随后释放槽位，用户报告延迟到人为打断或询问状态时汇总。
 6. 等待 OJ 或一个慢 lane 时，其他 lane 继续生产候选。第一个达到晋级门槛的候选可立即进入串行提交，不等待整批结束。
 7. NVIDIA 仅提供 `proxy/NVIDIA` 证据。远端最多 4 个并行 run，Main Agent 的 GPU 分配加 runner 的项目槽/GPU 锁是最终门禁；纯启动竞态使用下一 attempt，不烧掉 experiment 身份。
 
@@ -183,16 +183,19 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py `
 提交步骤严格使用 `skills/xpuoj-operator-optimizer/references/submission-protocol.md`。核心状态机是：
 
 ```text
-queued -> ready -> claimed -> armed -> judging -> awaiting_report -> reported
+queued -> ready -> claimed -> armed -> judging -> finalized
+                                               `-> reported（延迟标记，不占槽）
 ```
 
-`armed` 必须发生在最终 submit click 之前；`bind` 必须在点击后得到提交 ID 时立即执行。`awaiting_report` 在用户报告真正发出前一直占用全局槽位。
+`armed` 必须发生在最终 submit click 之前；`bind` 必须在点击后得到提交 ID 时立即执行。`finalize` 将终态写入 SQLite、把 candidate 标记为 `finalized` 并删除 active claim；尚未向用户报告的结果留在延迟队列，但不占用 OJ 槽位。
 
 OJ 在 `judging` 时：
 
 - Main Agent 继续收集和审阅其他 lane，不启动第二次 OJ 提交。
 - Subagent 继续下一条已经分配的正交假设或完成当前交付。
 - 候选可以保持 `queued`，但不要提前把多个会互相覆盖的 source blob 集成到 `main`。
+
+终态后不要为了逐次报告停止调度。保存证据、执行 `finalize`、完成正式 best 更新或失败恢复并 commit/push 后，即可 claim 下一候选。用户主动打断、询问状态、任务结束或出现必须由用户处理的阻塞时，运行 `submission_controller.py unreported-list`，发送一次汇总；消息实际发出后再逐条执行 `report`。
 
 若某个候选成为新最佳，Main Agent 更新正式 best。以旧 baseline 为基础且改动区域重叠的候选作废或重新分配；正交候选在重新核对后仍可排队。两个改动只有在分别取得目标收益后才能组合，组合必须使用新的 experiment/candidate。
 
@@ -216,7 +219,7 @@ controller takeover 会 fence 旧 token，但不会删除 active claim。新 Mai
 | `claimed` | 确认尚未打开提交动作后，可 `abandon` 并写原因 |
 | `armed` | 必须检查 OJ 提交历史；找到记录就 `bind`，确认没有提交才可 `abandon --confirmed-no-submit`，并提供历史证据文件、核对时间和 claim source hash |
 | `judging` | 按 submission ID 继续等待或抓取终态，然后 `finalize` |
-| `awaiting_report` | 先向用户发送或保守地重复发送报告，再执行 `report` |
+| legacy `awaiting_report` | 使用原终态参数重试 `finalize`，迁移为已释放槽位的 `finalized`；用户报告可继续延迟 |
 
 绝不能因超时自动清除 `armed` 或 `judging`。点击后尚未得到 ID 时，使用时间、题目、语言和源码哈希对账；在确认前保持全局阻塞，不能重提。
 
@@ -234,4 +237,4 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py abandon 
 
 控制器会校验文件存在、核对时间不早于 `arm`，并把证据文件哈希、题目、语言和 claim source hash 写入审计事件。
 
-会话正常结束且没有 active claim 或待报告结果时，可执行 `controller-release`。候选 worktree 和远端 run 不自动删除。Main Agent 只有在 candidate commit/branch 仍可定位、handoff 已提交、队列状态已终结、且 raw evidence 已确认位于 primary 共享 artifact root 后，才可退役本地 worktree；不得删除 reservation ref 或远端 run，其他清理仍需遵守现有保留策略。
+会话正常结束且没有 active claim 时可执行 `controller-release`；延迟用户报告不阻止 release。候选 worktree 和远端 run 不自动删除。Main Agent 只有在 candidate commit/branch 仍可定位、handoff 已提交、队列状态已终结、且 raw evidence 已确认位于 primary 共享 artifact root 后，才可退役本地 worktree；不得删除 reservation ref 或远端 run，其他清理仍需遵守现有保留策略。

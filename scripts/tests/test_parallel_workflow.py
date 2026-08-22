@@ -240,22 +240,38 @@ class SubmissionControllerTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.fixture.close()
 
-    def test_init_rejects_legacy_pending_report(self) -> None:
+    def test_init_imports_legacy_pending_report_as_deferred(self) -> None:
         mirror = json.loads(self.fixture.mirror.read_text(encoding="utf-8"))
         mirror["pending_report"] = "100001"
         mirror["submissions"][0]["reported_to_user"] = False
         self.fixture.mirror.write_text(
             json.dumps(mirror, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
-        initialized = self.fixture.controller("init", check=False)
-        self.assertNotEqual(initialized.returncode, 0)
-        self.assertIn("pending_report", initialized.stderr)
+        initialized = json.loads(self.fixture.controller("init").stdout)
+        self.assertEqual(initialized["imported_submissions"], 1)
+        deferred = json.loads(self.fixture.controller("unreported-list").stdout)
+        self.assertEqual([item["id"] for item in deferred], ["100001"])
+        self.assertEqual(self.fixture.controller("check").returncode, 0)
 
     def test_parallel_claim_and_full_submission_lifecycle(self) -> None:
         initialized = json.loads(self.fixture.controller("init").stdout)
         self.assertEqual(initialized["imported_submissions"], 1)
         token = self.fixture.acquire()
         self.fixture.enqueue_and_promote(token)
+        self.fixture.controller(
+            *self.fixture.enqueue_arguments(
+                "cand-exp-101-b", "exp-20260822-101", "subagent-b"
+            )
+        )
+        self.fixture.controller(
+            "candidate-promote",
+            "--candidate",
+            "cand-exp-101-b",
+            "--commit",
+            self.fixture.commit,
+            "--controller-token",
+            token,
+        )
         self.assertEqual(
             run(["git", "status", "--porcelain"], cwd=self.fixture.repo).stdout,
             "",
@@ -418,8 +434,27 @@ class SubmissionControllerTests(unittest.TestCase):
             check=False,
         )
         self.assertNotEqual(conflicting_final.returncode, 0)
-        blocked_after_final = self.fixture.controller("check", check=False)
-        self.assertEqual(blocked_after_final.returncode, 2)
+        self.assertEqual(self.fixture.controller("check").returncode, 0)
+        deferred = json.loads(self.fixture.controller("unreported-list").stdout)
+        self.assertEqual([item["id"] for item in deferred], ["200001"])
+        run(
+            ["git", "add", "state/submission-state.json"], cwd=self.fixture.repo
+        )
+        run(
+            ["git", "commit", "-m", "persist finalized submission"],
+            cwd=self.fixture.repo,
+        )
+        next_claim = json.loads(
+            self.fixture.controller(
+                "claim",
+                "--candidate",
+                "cand-exp-101-b",
+                "--request-id",
+                "req-continuous-b",
+                "--controller-token",
+                token,
+            ).stdout
+        )["claim_id"]
         self.fixture.controller(
             "report",
             "--submission-id",
@@ -431,6 +466,24 @@ class SubmissionControllerTests(unittest.TestCase):
             "--controller-token",
             token,
         )
+        active_during_deferred_report = json.loads(
+            self.fixture.controller("controller-status").stdout
+        )["active_claim"]
+        self.assertEqual(active_during_deferred_report["claim_id"], next_claim)
+        self.assertEqual(active_during_deferred_report["phase"], "claimed")
+        self.fixture.controller(
+            "abandon",
+            "--claim",
+            next_claim,
+            "--reason",
+            "continuous-mode claim proof complete",
+            "--controller-token",
+            token,
+        )
+        self.fixture.controller(
+            "controller-release", "--controller-token", token
+        )
+        token = self.fixture.acquire("main-after-interrupt")
         self.fixture.controller(
             "report",
             "--submission-id",
@@ -456,6 +509,9 @@ class SubmissionControllerTests(unittest.TestCase):
         )
         self.assertNotEqual(conflicting_report.returncode, 0)
         self.assertEqual(self.fixture.controller("check").returncode, 0)
+        self.assertEqual(
+            json.loads(self.fixture.controller("unreported-list").stdout), []
+        )
         mirror = json.loads(self.fixture.mirror.read_text(encoding="utf-8"))
         self.assertEqual(mirror["version"], 2)
         self.assertIsNone(mirror["pending_report"])
@@ -695,7 +751,7 @@ class SubmissionControllerTests(unittest.TestCase):
                 "--owner",
                 "main-after-crash",
                 "--reason",
-                "resume finalized report gate",
+                "resume with deferred user report",
                 "--expected-owner",
                 "main-before-crash",
                 "--expected-epoch",
@@ -891,7 +947,7 @@ class SubmissionControllerTests(unittest.TestCase):
         )
         self.assertNotEqual(missing.returncode, 0)
         status = json.loads(self.fixture.controller("controller-status").stdout)
-        self.assertEqual(status["active_claim"]["phase"], "awaiting_report")
+        self.assertIsNone(status["active_claim"])
 
     def test_canonical_paths_and_mirror_drift_gate(self) -> None:
         self.fixture.controller("init")

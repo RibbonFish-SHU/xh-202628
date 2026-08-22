@@ -1,6 +1,6 @@
 ---
 name: xpuoj-operator-optimizer
-description: Drive reproducible XH-202628 GPU operator optimization with parallel isolated candidate agents and one centralized XPU-OJ coordinator, including live contract capture, committed NVIDIA proxy runs, candidate review, crash-safe target submissions, and mandatory per-submission reports. Use when onboarding or resuming this competition workspace, orchestrating Subagents, optimizing FlashInfer, FlashAttention, or Fused MoE kernels, running remote NVIDIA tests, preparing an XPU-OJ submission, or analyzing an OJ score.
+description: Drive reproducible XH-202628 GPU operator optimization with parallel isolated candidate agents and one centralized XPU-OJ coordinator, including live contract capture, committed NVIDIA proxy runs, candidate review, crash-safe target submissions, and deferred consolidated reports on user interruption. Use when onboarding or resuming this competition workspace, orchestrating Subagents, optimizing FlashInfer, FlashAttention, or Fused MoE kernels, running remote NVIDIA tests, preparing an XPU-OJ submission, or analyzing an OJ score.
 ---
 
 # XPU-OJ Operator Optimizer
@@ -78,16 +78,16 @@ Follow `references/submission-protocol.md` exactly:
 1. Main Agent acquires the centralized controller and runs `submission_controller.py check`.
 2. Promote one integrated candidate, claim the global slot, and persist `arm` before the final click.
 3. Submit the exact committed source through the user's authenticated local browser without exposing credentials, then immediately `bind` the numeric submission ID.
-4. Wait for a terminal result, save evidence, and run `finalize`.
-5. Send the user a report based on `../../templates/submission-report.md`.
-6. Only after sending that message, run `submission_controller.py report` to release the slot.
+4. Wait for a terminal result, save evidence, and run `finalize`; this records the result and releases the slot.
+5. Persist formal state, restore the formal-best source after a losing candidate, commit/push, and continue without waiting for a user report.
+6. When the user interrupts, asks for status, the task ends, or user action is required, run `unreported-list`, send one consolidated report based on `../../templates/submission-report.md`, then mark each delivered result with `report`.
 
-Treat compile errors, Wrong Answer, crashes, timeouts, and zero scores as reportable submissions. Never make another submission while a report is pending.
+Treat compile errors, Wrong Answer, crashes, timeouts, and zero scores as terminal submissions. Record all of them; deferred user reports do not block the next submission.
 
 If a target result does not become the formal best, restore the submission source from the explicit formal-best commit, verify its exact source hash, commit/push that restoration, and only then integrate another candidate. Never accumulate an untested combination on top of a losing candidate.
 
 ## Finish
 
-Complete an iteration only when code, exact commands, raw evidence, experiment record, Git commit, and decision agree. Complete an OJ iteration only after terminal OJ evidence and the user report exist.
+Complete an iteration only when code, exact commands, raw evidence, experiment record, Git commit, and decision agree. An OJ iteration is internally complete after terminal evidence is finalized; its user-visible report may remain deferred until interruption.
 
 Main Agent updates `state/PROJECT_STATE.md` before ending so a new coordinator can resume without conversation history. Producers finish their committed handoff and queue entry. Auditors return read-only findings directly to Main Agent.
