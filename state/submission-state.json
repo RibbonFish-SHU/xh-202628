@@ -530,6 +530,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T19:18:15+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122909"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-031-mma-interleave",
+      "claim_id": "claim-ebdfde6beb064f319be2dd9da0b56f78",
+      "commit": "582080db66ff63d0acf9a2fa2945482399ff1c96",
+      "evidence": "artifacts/raw/xpuoj/122918",
+      "experiment": "exp-20260823-031",
+      "id": "122918",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4 at 82.25 with cases 83/73/89/84 and displayed times 1021 us/8 ms/545 us/4102 us; tied formal best #117114 without improving case 2 or score, so reject source-level MMA chain interleave and restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "82.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T19:43:17+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122918"
     }
   ],
   "version": 2

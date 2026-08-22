@@ -169,12 +169,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk + 1], b_frag[nn][kk + 1], accum[m][nn])
 
-#define XH_MMA_STAGE_PAIR_INTERLEAVED(m, nn0, kk0, nn1, kk1)                                      \
-    accum[m][nn0] = XH_MMA_I8(a_frag[m][kk0], b_frag[nn0][kk0], accum[m][nn0]);                  \
-    accum[m][nn1] = XH_MMA_I8(a_frag[m][kk1], b_frag[nn1][kk1], accum[m][nn1]);                  \
-    accum[m][nn0] = XH_MMA_I8(a_frag[m][kk0 + 1], b_frag[nn0][kk0 + 1], accum[m][nn0]);          \
-    accum[m][nn1] = XH_MMA_I8(a_frag[m][kk1 + 1], b_frag[nn1][kk1 + 1], accum[m][nn1])
-
 #define XH_LDG_A_STAGE_I(ldgi)                                                                    \
     load_a[ldgi] = __builtin_mxc_ldg_b128(                                                        \
         a_base + load_a_row_offset[ldgi] + load_k,                                                \
@@ -344,7 +338,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_LDS_B_B128(7, 0);
         XH_MMA_STAGE_MNKX2(0, 2, 0);
         XH_LDG_B_STAGE_I(3);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(0, 2, 2, 3, 0);
+        XH_MMA_STAGE_MNKX2(0, 2, 2);
+        XH_MMA_STAGE_MNKX2(0, 3, 0);
         XH_LDG_A_STAGE_I(0);
         XH_MMA_STAGE_MNKX2(0, 3, 2);
         XH_LDG_A_STAGE_I(1);
@@ -359,7 +354,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_LDS_B_B128(2, 1);
         XH_MMA_STAGE_MNKX2(0, 6, 0);
         XH_LDS_B_B128(3, 1);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(0, 6, 2, 7, 0);
+        XH_MMA_STAGE_MNKX2(0, 6, 2);
+        XH_MMA_STAGE_MNKX2(0, 7, 0);
         XH_MMA_STAGE_MNKX2(0, 7, 2);
 
         XH_LDS_B_B128(4, 1);
@@ -369,7 +365,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_LDS_B_B128(6, 1);
         XH_MMA_STAGE_MNKX2(0, 1, 4);
         XH_LDS_B_B128(7, 1);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(0, 1, 6, 2, 4);
+        XH_MMA_STAGE_MNKX2(0, 1, 6);
+        XH_MMA_STAGE_MNKX2(0, 2, 4);
         XH_MMA_STAGE_MNKX2(0, 2, 6);
         XH_MMA_STS(shared_a_tensor(store_row_a[2], store_col), load_a[2], MmaLoad128);
         XH_MMA_STAGE_MNKX2(0, 3, 4);
@@ -381,27 +378,34 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(0, 4, 6);
         XH_LDG_A_STAGE_I(3);
         XH_MMA_STAGE_MNKX2(0, 5, 4);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(0, 5, 6, 6, 4);
+        XH_MMA_STAGE_MNKX2(0, 5, 6);
+        XH_MMA_STAGE_MNKX2(0, 6, 4);
         XH_LDS_A_B128(1, 0);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(0, 6, 6, 7, 4);
+        XH_MMA_STAGE_MNKX2(0, 6, 6);
+        XH_MMA_STAGE_MNKX2(0, 7, 4);
         a_base += kMmaTileK;
         XH_MMA_STAGE_MNKX2(0, 7, 6);
 
         __syncthreadshared();
         XH_MMA_STAGE_MNKX2(1, 0, 0);
         XH_LDS_A_B128(1, 1);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 0, 2, 1, 0);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 1, 2, 2, 0);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 2, 2, 3, 0);
+        XH_MMA_STAGE_MNKX2(1, 0, 2);
+        XH_MMA_STAGE_MNKX2(1, 1, 0);
+        XH_MMA_STAGE_MNKX2(1, 1, 2);
+        XH_MMA_STAGE_MNKX2(1, 2, 0);
+        XH_MMA_STAGE_MNKX2(1, 2, 2);
+        XH_MMA_STAGE_MNKX2(1, 3, 0);
         XH_MMA_STAGE_MNKX2(1, 3, 2);
 
         XH_MMA_STAGE_MNKX2(1, 4, 0);
         XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b[0], MmaLoad128);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 4, 2, 5, 0);
+        XH_MMA_STAGE_MNKX2(1, 4, 2);
+        XH_MMA_STAGE_MNKX2(1, 5, 0);
         XH_MMA_STAGE_MNKX2(1, 5, 2);
         XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b[1], MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 6, 0);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 6, 2, 7, 0);
+        XH_MMA_STAGE_MNKX2(1, 6, 2);
+        XH_MMA_STAGE_MNKX2(1, 7, 0);
         XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b[2], MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 7, 2);
 
@@ -409,14 +413,17 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(1, 0, 6);
         XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b[3], MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 1, 4);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 1, 6, 2, 4);
+        XH_MMA_STAGE_MNKX2(1, 1, 6);
+        XH_MMA_STAGE_MNKX2(1, 2, 4);
         XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a[0], MmaLoad128);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 2, 6, 3, 4);
+        XH_MMA_STAGE_MNKX2(1, 2, 6);
+        XH_MMA_STAGE_MNKX2(1, 3, 4);
         XH_MMA_STAGE_MNKX2(1, 3, 6);
         XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a[1], MmaLoad128);
 
         XH_MMA_STAGE_MNKX2(1, 4, 4);
-        XH_MMA_STAGE_PAIR_INTERLEAVED(1, 4, 6, 5, 4);
+        XH_MMA_STAGE_MNKX2(1, 4, 6);
+        XH_MMA_STAGE_MNKX2(1, 5, 4);
         __syncthreadshared();
         XH_MMA_STAGE_MNKX2(1, 5, 6);
         XH_LDS_A_B128(0, 0);
@@ -690,7 +697,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #undef XH_LDG_B_STAGE_I
 #undef XH_LDG_A_STAGE_I
 #undef XH_MMA_STAGE_MNKX2
-#undef XH_MMA_STAGE_PAIR_INTERLEAVED
 }
 
 #else
