@@ -615,6 +615,163 @@ void verify_mma_exact_tile_bounds() {
                   << " exact-mnk=PASS predicates-removed-per-thread=38\n";
     }
 }
+void verify_mma64_output_mapping() {
+    constexpr int tile_rows = 64;
+    constexpr int tile_cols = 128;
+    std::vector<int> visits(tile_rows * tile_cols, 0);
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
+            const int row = xh_fused_moe::mma64_output_row_local(thread_id, row_in_group);
+            for (int col_group = 0; col_group < 2; ++col_group) {
+                for (int col_in_group = 0; col_in_group < 4; ++col_in_group) {
+                    const int col = xh_fused_moe::mma64_output_col_local(
+                        thread_id, col_group, col_in_group);
+                    if (row < 0 || row >= tile_rows || col < 0 || col >= tile_cols) {
+                        throw std::runtime_error("MMA64 output mapping is out of range");
+                    }
+                    ++visits[row * tile_cols + col];
+                }
+            }
+        }
+    }
+    if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("MMA64 output mapping does not cover the tile exactly once");
+    }
+    std::cout << "REGRESSION maca-mma64-output-mapping elements=" << visits.size()
+              << " exact-cover=PASS\n";
+}
+
+void verify_mma64_grid_mapping() {
+    const xh_fused_moe::KernelConfig config{32768, 4096, 7168};
+    if (!xh_fused_moe::uses_prefill_gate_up_specialization(config)) {
+        throw std::runtime_error("MMA64 grid mapping must target prefill-gate-up");
+    }
+    constexpr int tile_rows = 64;
+    constexpr int tile_cols = 128;
+    const int grid_x = 2;
+    const int grid_y = config.n / tile_cols;
+    const int grid_z = config.em / 128;
+    const int grid_m = config.em / tile_rows;
+    std::vector<int> visits(static_cast<size_t>(grid_m) * grid_y, 0);
+    for (int z = 0; z < grid_z; ++z) {
+        for (int y = 0; y < grid_y; ++y) {
+            for (int x = 0; x < grid_x; ++x) {
+                const int tile_m = x + z * grid_x;
+                if (tile_m / 2 != z) {
+                    throw std::runtime_error("MMA64 paired tiles do not share an expert group");
+                }
+                ++visits[static_cast<size_t>(tile_m) * grid_y + y];
+            }
+        }
+    }
+    if (grid_x != 2 || grid_y != 32 || grid_z != 256
+        || !std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("MMA64 grid mapping failed for prefill-gate-up");
+    }
+    const double covered =
+        static_cast<double>(grid_x) * grid_y * grid_z * tile_rows * tile_cols;
+    if (covered != static_cast<double>(config.em) * config.n) {
+        throw std::runtime_error("MMA64 grid does not cover EMxN exactly");
+    }
+    std::cout << "REGRESSION maca-mma64-grid case=prefill-gate-up grid_x=" << grid_x
+              << " grid_y=" << grid_y << " grid_z=" << grid_z << " exact-cover=PASS\n";
+}
+
+void verify_mma64_load_bounds() {
+    constexpr int a_rows = 64;
+    constexpr int b_rows = 128;
+    constexpr int tile_k = 128;
+    constexpr int a_loads_per_thread = 2;
+    constexpr int b_loads_per_thread = 4;
+    std::vector<int> a_visits(a_rows, 0);
+    std::vector<int> b_visits(b_rows, 0);
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        const int g2s_row = thread_id / 8;
+        const int load_k = (thread_id % 8) * 16;
+        if (load_k < 0 || load_k + 16 > tile_k) {
+            throw std::runtime_error("MMA64 load K vector is outside its exact tile");
+        }
+        for (int load = 0; load < a_loads_per_thread; ++load) {
+            const int store_row = g2s_row + 32 * load;
+            if (store_row < 0 || store_row >= a_rows) {
+                throw std::runtime_error("MMA64 A store row is outside its exact tile");
+            }
+            ++a_visits[store_row];
+        }
+        for (int load = 0; load < b_loads_per_thread; ++load) {
+            const int store_row = g2s_row + 32 * load;
+            const int b_row = xh_fused_moe::mma64_b_load_row(store_row);
+            if (b_row < 0 || b_row >= b_rows) {
+                throw std::runtime_error("MMA64 B load row is outside its exact tile");
+            }
+            ++b_visits[b_row];
+        }
+    }
+    if (!std::all_of(a_visits.begin(), a_visits.end(), [](int count) { return count == 8; })
+        || !std::all_of(b_visits.begin(), b_visits.end(), [](int count) { return count == 8; })) {
+        throw std::runtime_error("MMA64 A/B loads do not cover every tile row exactly 8 times");
+    }
+    std::cout << "REGRESSION maca-mma64-load-bounds a-rows=64 b-rows=128"
+              << " a-loads=2 b-loads=4 exact-rows=PASS\n";
+}
+
+void verify_mma64_fragment_mapping() {
+    constexpr int kChunks = 8;
+    std::vector<int> a_source_row(64 * kChunks, -1);
+    std::vector<int> a_source_k(64 * kChunks, -1);
+    std::vector<int> b_source_row(128 * kChunks, -1);
+    std::vector<int> b_source_k(128 * kChunks, -1);
+
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        const int g2s_row = thread_id / 8;
+        const int source_k = thread_id % 8;
+        const int store_k = (g2s_row + source_k) % kChunks;
+        for (int load = 0; load < 2; ++load) {
+            const int store_row = g2s_row + 32 * load;
+            const int index = store_row * kChunks + store_k;
+            if (a_source_row[index] != -1) {
+                throw std::runtime_error("MMA64 A shared fragment is written twice");
+            }
+            a_source_row[index] = store_row;
+            a_source_k[index] = source_k;
+        }
+        for (int load = 0; load < 4; ++load) {
+            const int store_row = g2s_row + 32 * load;
+            const int index = store_row * kChunks + store_k;
+            if (b_source_row[index] != -1) {
+                throw std::runtime_error("MMA64 B shared fragment is written twice");
+            }
+            b_source_row[index] = xh_fused_moe::mma64_b_load_row(store_row);
+            b_source_k[index] = source_k;
+        }
+    }
+
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        const int wave = thread_id / 64;
+        const int lane = thread_id % 64;
+        for (int k_half = 0; k_half < 2; ++k_half) {
+            const int lds_k = ((thread_id % 16) + lane / 16 + 4 * k_half) % kChunks;
+            const int expected_k = lane / 16 + 4 * k_half;
+            const int a_row = (thread_id % 16) + wave * 16;
+            const int a_index = a_row * kChunks + lds_k;
+            if (a_source_row[a_index] != a_row || a_source_k[a_index] != expected_k) {
+                throw std::runtime_error("MMA64 A LDS fragment mapping is inconsistent");
+            }
+            for (int fragment = 0; fragment < 8; ++fragment) {
+                const int shared_row = (thread_id % 16) + 16 * fragment;
+                const int b_index = shared_row * kChunks + lds_k;
+                const int expected_col = (thread_id % 16) * 4
+                    + (fragment % 2) * 64 + fragment / 2;
+                if (b_source_row[b_index] != expected_col
+                    || b_source_k[b_index] != expected_k) {
+                    throw std::runtime_error("MMA64 B LDS fragment mapping is inconsistent");
+                }
+            }
+        }
+    }
+    std::cout << "REGRESSION maca-mma64-fragment-mapping A/B-swizzle=PASS\n";
+}
+
 
 void run_regression() {
     verify_public_inference();
@@ -623,6 +780,10 @@ void run_regression() {
     verify_mma_shape_specialization();
     verify_mma_a_load_bounds();
     verify_mma_exact_tile_bounds();
+    verify_mma64_output_mapping();
+    verify_mma64_grid_mapping();
+    verify_mma64_load_bounds();
+    verify_mma64_fragment_mapping();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
