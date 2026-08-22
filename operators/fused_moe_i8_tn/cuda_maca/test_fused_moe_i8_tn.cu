@@ -2,6 +2,7 @@
 #include "submission.cu"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -552,11 +553,381 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+enum StripEventKind {
+    kStripMma,
+    kStripLoadA,
+    kStripLoadB,
+    kStripBarrier,
+};
+
+struct StripEvent {
+    StripEventKind kind;
+    int m;
+    int n;
+    int slot;
+    int depth;
+    int half;
+    bool next_tile;
+};
+
+StripEvent strip_mma(int m, int n, int depth) {
+    return {kStripMma, m, n, n % 4, depth, -1, false};
+}
+
+StripEvent strip_load_a(int m, int half, bool next_tile) {
+    return {kStripLoadA, m, -1, -1, -1, half, next_tile};
+}
+
+StripEvent strip_load_b(int slot, int n, int half, bool next_tile) {
+    return {kStripLoadB, -1, n, slot, -1, half, next_tile};
+}
+
+std::vector<StripEvent> make_b_fragment_strip_schedule(bool steady) {
+    std::vector<StripEvent> events;
+    for (int n = 0; n < 4; ++n) {
+        events.push_back(strip_mma(0, n, 0));
+        events.push_back(strip_load_b(n, n, 1, false));
+    }
+    for (int n = 0; n < 4; ++n) {
+        events.push_back(strip_mma(0, n, 2));
+    }
+    events.push_back(strip_load_a(0, 1, false));
+    for (int depth : {4, 6}) {
+        for (int n = 0; n < 4; ++n) {
+            events.push_back(strip_mma(0, n, depth));
+        }
+    }
+    events.push_back(strip_load_a(1, 0, false));
+    events.push_back(strip_load_a(1, 1, false));
+
+    for (int depth : {0, 2, 4}) {
+        for (int n = 0; n < 4; ++n) {
+            events.push_back(strip_mma(1, n, depth));
+        }
+    }
+    for (int slot = 0; slot < 4; ++slot) {
+        events.push_back(strip_mma(1, slot, 6));
+        events.push_back(strip_load_b(slot, 4 + slot, 0, false));
+        events.push_back(strip_load_b(slot, 4 + slot, 1, false));
+    }
+
+    if (steady) {
+        events.push_back({kStripBarrier, -1, -1, -1, -1, -1, false});
+    }
+    for (int depth : {0, 2, 4, 6}) {
+        for (int n = 4; n < 8; ++n) {
+            events.push_back(strip_mma(0, n, depth));
+        }
+    }
+    for (int depth : {0, 2, 4}) {
+        for (int n = 4; n < 8; ++n) {
+            events.push_back(strip_mma(1, n, depth));
+        }
+    }
+    events.push_back(strip_mma(1, 4, 6));
+    events.push_back(strip_mma(1, 5, 6));
+
+    if (steady) {
+        events.push_back({kStripBarrier, -1, -1, -1, -1, -1, false});
+        events.push_back(strip_load_a(0, 0, true));
+        events.push_back(strip_load_b(0, 0, 0, true));
+        events.push_back(strip_load_b(1, 1, 0, true));
+        events.push_back(strip_mma(1, 6, 6));
+        events.push_back(strip_load_b(2, 2, 0, true));
+        events.push_back(strip_mma(1, 7, 6));
+        events.push_back(strip_load_b(3, 3, 0, true));
+    } else {
+        events.push_back(strip_mma(1, 6, 6));
+        events.push_back(strip_mma(1, 7, 6));
+    }
+    return events;
+}
+
+struct StripIdentity {
+    int tile;
+    int logical;
+    int depth;
+};
+
+void verify_mma_b_fragment_identity() {
+    constexpr int threads = 256;
+    constexpr int wave_size = 64;
+    constexpr int rows = 128;
+    constexpr int chunks = 8;
+    for (int thread_id = 0; thread_id < threads; ++thread_id) {
+        const int lane = thread_id % wave_size;
+        int baseline[8][8];
+        for (int n = 0; n < 8; ++n) {
+            const int row = lane % 16 + 16 * n;
+            for (int half = 0; half < 2; ++half) {
+                const int chunk = ((thread_id % 16) + lane / 16 + 4 * half) % 8;
+                for (int offset = 0; offset < 4; ++offset) {
+                    baseline[n][4 * half + offset] =
+                        (row * 128) + (chunk * 16) + offset * 4;
+                }
+            }
+        }
+        for (int group = 0; group < 2; ++group) {
+            int slots[4][8] = {};
+            for (int slot = 0; slot < 4; ++slot) {
+                const int logical_n = 4 * group + slot;
+                const int row = lane % 16 + 16 * logical_n;
+                for (int half = 0; half < 2; ++half) {
+                    const int chunk =
+                        ((thread_id % 16) + lane / 16 + 4 * half) % chunks;
+                    for (int offset = 0; offset < 4; ++offset) {
+                        const int depth = 4 * half + offset;
+                        slots[slot][depth] =
+                            (row * 128) + (chunk * 16) + offset * 4;
+                        if (slots[slot][depth] != baseline[logical_n][depth]) {
+                            throw std::runtime_error("B strip slot is not baseline-identical");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (int wave = 0; wave < 4; ++wave) {
+        std::vector<int> visits(rows * chunks, 0);
+        for (int lane = 0; lane < wave_size; ++lane) {
+            const int thread_id = wave * wave_size + lane;
+            for (int n = 0; n < 8; ++n) {
+                const int row = lane % 16 + 16 * n;
+                for (int half = 0; half < 2; ++half) {
+                    const int chunk =
+                        ((thread_id % 16) + lane / 16 + 4 * half) % chunks;
+                    ++visits[row * chunks + chunk];
+                }
+            }
+        }
+        if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+            throw std::runtime_error("B strip LDS mapping is not a per-wave exact cover");
+        }
+    }
+    std::cout << "REGRESSION maca-b-fragment-strip-identity threads=256 slots=4"
+              << " groups=2 depths=8 per-wave-exact-cover=PASS\n";
+}
+
+void verify_mma_b_fragment_lifecycle(int num_k_tiles) {
+    const std::vector<StripEvent> steady = make_b_fragment_strip_schedule(true);
+    const std::vector<StripEvent> tail = make_b_fragment_strip_schedule(false);
+    StripIdentity a_state[2][8];
+    StripIdentity b_state[4][8];
+    for (auto& row : a_state) {
+        for (auto& value : row) {
+            value = {-1, -1, -1};
+        }
+    }
+    for (auto& slot : b_state) {
+        for (auto& value : slot) {
+            value = {-1, -1, -1};
+        }
+    }
+
+    std::vector<int> a_loads(num_k_tiles * 2 * 8, 0);
+    std::vector<int> a_uses(num_k_tiles * 2 * 8, 0);
+    std::vector<int> b_loads(num_k_tiles * 8 * 8, 0);
+    std::vector<int> b_uses(num_k_tiles * 8 * 8, 0);
+    std::array<std::array<std::vector<int>, 8>, 2> chains;
+    int barrier_count = 1;
+
+    auto a_index = [](int tile, int m, int depth) {
+        return (tile * 2 + m) * 8 + depth;
+    };
+    auto b_index = [](int tile, int n, int depth) {
+        return (tile * 8 + n) * 8 + depth;
+    };
+    auto load_a = [&](int tile, int m, int half) {
+        for (int depth = 4 * half; depth < 4 * half + 4; ++depth) {
+            StripIdentity& previous = a_state[m][depth];
+            if (previous.tile >= 0
+                && a_uses[a_index(previous.tile, previous.logical, previous.depth)] != 8) {
+                throw std::runtime_error("A fragment was overwritten before its final use");
+            }
+            a_state[m][depth] = {tile, m, depth};
+            ++a_loads[a_index(tile, m, depth)];
+        }
+    };
+    auto load_b = [&](int tile, int slot, int n, int half) {
+        if (slot != n % 4) {
+            throw std::runtime_error("B logical column was assigned to the wrong physical slot");
+        }
+        for (int depth = 4 * half; depth < 4 * half + 4; ++depth) {
+            StripIdentity& previous = b_state[slot][depth];
+            if (previous.tile >= 0
+                && b_uses[b_index(previous.tile, previous.logical, previous.depth)] != 2) {
+                throw std::runtime_error("B fragment was overwritten before its final use");
+            }
+            b_state[slot][depth] = {tile, n, depth};
+            ++b_loads[b_index(tile, n, depth)];
+        }
+    };
+
+    const int first_tile = num_k_tiles - 1;
+    load_a(first_tile, 0, 0);
+    for (int slot = 0; slot < 4; ++slot) {
+        load_b(first_tile, slot, slot, 0);
+    }
+
+    auto execute = [&](const std::vector<StripEvent>& events, int current_tile, int next_tile) {
+        for (const StripEvent& event : events) {
+            if (event.kind == kStripBarrier) {
+                ++barrier_count;
+                continue;
+            }
+            const int source_tile = event.next_tile ? next_tile : current_tile;
+            if (event.kind == kStripLoadA) {
+                if (source_tile < 0) {
+                    throw std::runtime_error("tail schedule attempted to load a next A tile");
+                }
+                load_a(source_tile, event.m, event.half);
+                continue;
+            }
+            if (event.kind == kStripLoadB) {
+                if (source_tile < 0) {
+                    throw std::runtime_error("tail schedule attempted to load a next B tile");
+                }
+                load_b(source_tile, event.slot, event.n, event.half);
+                continue;
+            }
+            for (int depth = event.depth; depth < event.depth + 2; ++depth) {
+                const StripIdentity& a = a_state[event.m][depth];
+                const StripIdentity& b = b_state[event.slot][depth];
+                if (a.tile != current_tile || a.logical != event.m || a.depth != depth) {
+                    throw std::runtime_error("MMA consumed the wrong A fragment identity");
+                }
+                if (b.tile != current_tile || b.logical != event.n || b.depth != depth) {
+                    throw std::runtime_error("MMA consumed the wrong B strip identity");
+                }
+                ++a_uses[a_index(a.tile, a.logical, a.depth)];
+                ++b_uses[b_index(b.tile, b.logical, b.depth)];
+                chains[event.m][event.n].push_back(current_tile * 8 + depth);
+            }
+        }
+    };
+
+    for (int tile = 0; tile < num_k_tiles - 1; ++tile) {
+        const int current_tile = tile == 0 ? first_tile : tile - 1;
+        execute(steady, current_tile, tile);
+    }
+    execute(tail, num_k_tiles == 1 ? 0 : num_k_tiles - 2, -1);
+
+    if (!std::all_of(a_loads.begin(), a_loads.end(), [](int count) { return count == 1; })
+        || !std::all_of(a_uses.begin(), a_uses.end(), [](int count) { return count == 8; })
+        || !std::all_of(b_loads.begin(), b_loads.end(), [](int count) { return count == 1; })
+        || !std::all_of(b_uses.begin(), b_uses.end(), [](int count) { return count == 2; })) {
+        throw std::runtime_error("fragment strip load/use cardinality changed");
+    }
+
+    std::vector<int> expected;
+    expected.reserve(num_k_tiles * 8);
+    expected.push_back(first_tile);
+    for (int tile = 0; tile < num_k_tiles - 1; ++tile) {
+        expected.push_back(tile);
+    }
+    for (int m = 0; m < 2; ++m) {
+        for (int n = 0; n < 8; ++n) {
+            std::vector<int> expected_chain;
+            for (int tile : expected) {
+                for (int depth = 0; depth < 8; ++depth) {
+                    expected_chain.push_back(tile * 8 + depth);
+                }
+            }
+            if (chains[m][n] != expected_chain) {
+                throw std::runtime_error("B strip changed an accumulator tile/depth chain");
+            }
+        }
+    }
+    if (barrier_count != 2 * num_k_tiles - 1) {
+        throw std::runtime_error("B strip changed the dynamic barrier model");
+    }
+    std::cout << "REGRESSION maca-b-fragment-strip-lifecycle k-tiles=" << num_k_tiles
+              << " chains=16 tile-order=last,0..last-1 depth-order=0..7"
+              << " overwrite-after-final-use=PASS barriers=" << barrier_count << "\n";
+}
+
+void verify_mma_prebarrier_a_ownership() {
+    constexpr int rows = 128;
+    constexpr int chunks = 8;
+    std::vector<int> owner_wave(rows * chunks, -1);
+    std::vector<int> owner_load(rows * chunks, -1);
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        const int wave = thread_id / 64;
+        const int lane = thread_id % 64;
+        const int store_chunk = ((thread_id / 8) + (thread_id % 8)) % 8;
+        for (int load = 0; load < 4; ++load) {
+            const int store_row = wave * 32 + lane / 8 + load * 8;
+            const int index = store_row * chunks + store_chunk;
+            if (owner_wave[index] != -1) {
+                throw std::runtime_error("A shared producer mapping aliases a b128 vector");
+            }
+            owner_wave[index] = wave;
+            owner_load[index] = load;
+        }
+    }
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        const int wave = thread_id / 64;
+        const int lane = thread_id % 64;
+        for (int half = 0; half < 2; ++half) {
+            const int row = (thread_id % 16) + wave * 32 + 16;
+            const int chunk = ((thread_id % 16) + lane / 16 + 4 * half) % chunks;
+            const int index = row * chunks + chunk;
+            if (owner_wave[index] != wave
+                || (owner_load[index] != 2 && owner_load[index] != 3)) {
+                throw std::runtime_error("pre-barrier A row-1 LDS crosses wave ownership");
+            }
+        }
+    }
+    std::cout << "REGRESSION maca-b-fragment-strip-a-ownership"
+              << " row1-b128=512 same-wave=PASS moved-high-half=256\n";
+}
+
+void verify_mma_b_fragment_resource_model() {
+    constexpr int threads = 256;
+    constexpr int tile_m = 128;
+    constexpr int tile_n = 128;
+    constexpr int tile_k = 128;
+    constexpr int shared_bytes = tile_m * tile_k + tile_n * tile_k;
+    constexpr int a_fragments = 2 * 8;
+    constexpr int baseline_b_fragments = 8 * 8;
+    constexpr int strip_b_fragments = 4 * 8;
+    constexpr int mma_per_tile = 2 * 8 * 8;
+    if (shared_bytes != 32 * 1024 || a_fragments != 16
+        || baseline_b_fragments - strip_b_fragments != 32
+        || mma_per_tile != 128) {
+        throw std::runtime_error("B strip static resource model changed");
+    }
+    for (int k_tiles : {1, 2, 16, 56}) {
+        const int a_bytes = 4 * k_tiles * 16 * threads;
+        const int b_bytes = 4 * k_tiles * 16 * threads;
+        const int a_sts = 4 * k_tiles;
+        const int b_sts = 4 * k_tiles;
+        const int a_lds = 4 * k_tiles;
+        const int b_lds = 16 * k_tiles;
+        if (a_bytes != tile_m * tile_k * k_tiles
+            || b_bytes != tile_n * tile_k * k_tiles
+            || a_sts != 4 * k_tiles || b_sts != 4 * k_tiles
+            || a_lds != 4 * k_tiles || b_lds != 16 * k_tiles) {
+            throw std::runtime_error("B strip traffic model changed");
+        }
+    }
+    std::cout << "REGRESSION maca-b-fragment-strip-resources LDS-bytes=32768"
+              << " A-frag-i32=16 B-frag-i32=32 delta-B-i32=-32"
+              << " LDG-A/B=4/4 STS-A/B=4/4 LDS-A/B=4/16 MMA/tile=128 PASS\n";
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
+    verify_mma_b_fragment_identity();
+    for (int k_tiles : {1, 2, 16, 56}) {
+        verify_mma_b_fragment_lifecycle(k_tiles);
+    }
+    verify_mma_prebarrier_a_ownership();
+    verify_mma_b_fragment_resource_model();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

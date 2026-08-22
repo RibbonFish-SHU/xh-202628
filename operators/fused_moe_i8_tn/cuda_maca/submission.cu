@@ -132,6 +132,7 @@ constexpr int kMmaLdsB = kMmaSharedBBytes / (kMmaLoadBytesPerWave * kMmaWaveN);
 constexpr int kMmaRows = kMmaTileM / 16 / kMmaWaveM;
 constexpr int kMmaCols = kMmaTileN / 16 / kMmaWaveN;
 constexpr int kMmaDepth = kMmaTileK / 16;
+constexpr int kMmaBFragmentCols = kMmaCols / 2;
 constexpr int kMmaOutputVectors = 16;
 constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 
@@ -165,9 +166,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 ) {
     using namespace cute;
 
-#define XH_MMA_STAGE_MNKX2(m, nn, kk)                                                             \
-    accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
-    accum[m][nn] = XH_MMA_I8(a_frag[m][kk + 1], b_frag[nn][kk + 1], accum[m][nn])
+#define XH_MMA_STAGE_MNKX2(m, nn, bn, kk)                                                         \
+    accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[bn][kk], accum[m][nn]);                       \
+    accum[m][nn] = XH_MMA_I8(a_frag[m][kk + 1], b_frag[bn][kk + 1], accum[m][nn])
 
 #define XH_LDG_A_STAGE_I(ldgi)                                                                    \
     load_a[ldgi] = __builtin_mxc_ldg_b128(                                                        \
@@ -191,8 +192,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
 #define XH_LDS_A_B128(rowi, coli)                                                                 \
     XH_MMA_LDS(a_frag[rowi][coli * 4], shared_a_tensor(lds_row_a[rowi], lds_col[coli]), MmaLoad128)
-#define XH_LDS_B_B128(rowi, coli)                                                                 \
-    XH_MMA_LDS(b_frag[rowi][coli * 4], shared_b_tensor(lds_row_b[rowi], lds_col[coli]), MmaLoad128)
+#define XH_LDS_B_B128(slot, rowi, coli)                                                           \
+    XH_MMA_LDS(b_frag[slot][coli * 4], shared_b_tensor(lds_row_b[rowi], lds_col[coli]), MmaLoad128)
 
 #define XH_CVT_F32_TO_BF16(dst, src0, src1)                                                       \
     src0 = ((src0 >> 16) & 1) + src0 + 0x7fff;                                                   \
@@ -299,7 +300,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
     MmaInt4 accum[kMmaRows][kMmaCols] = {0};
     int32_t a_frag[kMmaRows][kMmaDepth];
-    int32_t b_frag[kMmaCols][kMmaDepth];
+    int32_t b_frag[kMmaBFragmentCols][kMmaDepth];
     int lds_row_a[2];
     int lds_row_b[8];
     int lds_col[2];
@@ -317,226 +318,221 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     __syncthreadshared();
 
     XH_LDS_A_B128(0, 0);
-    XH_LDS_B_B128(0, 0);
-    XH_LDS_B_B128(1, 0);
-    XH_LDS_B_B128(2, 0);
-    XH_LDS_B_B128(3, 0);
+    XH_LDS_B_B128(0, 0, 0);
+    XH_LDS_B_B128(1, 1, 0);
+    XH_LDS_B_B128(2, 2, 0);
+    XH_LDS_B_B128(3, 3, 0);
 
     const int loop_k_tiles = num_k_tiles - 1;
     a_base = const_cast<int8_t*>(a_ptr);
     for (uint32_t tile_k = 0; tile_k < loop_k_tiles; ++tile_k) {
         XH_LDG_B_STAGE_I(0);
         XH_LDG_B_STAGE_I(1);
-        XH_MMA_STAGE_MNKX2(0, 0, 0);
-        XH_LDS_B_B128(4, 0);
-        XH_MMA_STAGE_MNKX2(0, 0, 2);
-        XH_LDS_B_B128(5, 0);
-        XH_MMA_STAGE_MNKX2(0, 1, 0);
-        XH_LDS_B_B128(6, 0);
+        XH_MMA_STAGE_MNKX2(0, 0, 0, 0);
+        XH_LDS_B_B128(0, 0, 1);
+        XH_MMA_STAGE_MNKX2(0, 1, 1, 0);
+        XH_LDS_B_B128(1, 1, 1);
         XH_LDG_B_STAGE_I(2);
-        XH_MMA_STAGE_MNKX2(0, 1, 2);
-        XH_LDS_B_B128(7, 0);
-        XH_MMA_STAGE_MNKX2(0, 2, 0);
+        XH_MMA_STAGE_MNKX2(0, 2, 2, 0);
+        XH_LDS_B_B128(2, 2, 1);
         XH_LDG_B_STAGE_I(3);
-        XH_MMA_STAGE_MNKX2(0, 2, 2);
-        XH_MMA_STAGE_MNKX2(0, 3, 0);
+        XH_MMA_STAGE_MNKX2(0, 3, 3, 0);
+        XH_LDS_B_B128(3, 3, 1);
         XH_LDG_A_STAGE_I(0);
-        XH_MMA_STAGE_MNKX2(0, 3, 2);
+        XH_MMA_STAGE_MNKX2(0, 0, 0, 2);
+        XH_MMA_STAGE_MNKX2(0, 1, 1, 2);
         XH_LDG_A_STAGE_I(1);
+        XH_MMA_STAGE_MNKX2(0, 2, 2, 2);
+        XH_MMA_STAGE_MNKX2(0, 3, 3, 2);
 
-        XH_MMA_STAGE_MNKX2(0, 4, 0);
         XH_LDS_A_B128(0, 1);
-        XH_MMA_STAGE_MNKX2(0, 4, 2);
-        XH_LDS_B_B128(0, 1);
-        XH_MMA_STAGE_MNKX2(0, 5, 0);
-        XH_LDS_B_B128(1, 1);
-        XH_MMA_STAGE_MNKX2(0, 5, 2);
-        XH_LDS_B_B128(2, 1);
-        XH_MMA_STAGE_MNKX2(0, 6, 0);
-        XH_LDS_B_B128(3, 1);
-        XH_MMA_STAGE_MNKX2(0, 6, 2);
-        XH_MMA_STAGE_MNKX2(0, 7, 0);
-        XH_MMA_STAGE_MNKX2(0, 7, 2);
-
-        XH_LDS_B_B128(4, 1);
-        XH_MMA_STAGE_MNKX2(0, 0, 4);
-        XH_LDS_B_B128(5, 1);
-        XH_MMA_STAGE_MNKX2(0, 0, 6);
-        XH_LDS_B_B128(6, 1);
-        XH_MMA_STAGE_MNKX2(0, 1, 4);
-        XH_LDS_B_B128(7, 1);
-        XH_MMA_STAGE_MNKX2(0, 1, 6);
-        XH_MMA_STAGE_MNKX2(0, 2, 4);
-        XH_MMA_STAGE_MNKX2(0, 2, 6);
+        XH_MMA_STAGE_MNKX2(0, 0, 0, 4);
+        XH_MMA_STAGE_MNKX2(0, 1, 1, 4);
+        XH_MMA_STAGE_MNKX2(0, 2, 2, 4);
+        XH_MMA_STAGE_MNKX2(0, 3, 3, 4);
         XH_MMA_STS(shared_a_tensor(store_row_a[2], store_col), load_a[2], MmaLoad128);
-        XH_MMA_STAGE_MNKX2(0, 3, 4);
-        XH_MMA_STAGE_MNKX2(0, 3, 6);
+        XH_MMA_STAGE_MNKX2(0, 0, 0, 6);
+        XH_MMA_STAGE_MNKX2(0, 1, 1, 6);
         XH_MMA_STS(shared_a_tensor(store_row_a[3], store_col), load_a[3], MmaLoad128);
-
-        XH_MMA_STAGE_MNKX2(0, 4, 4);
         XH_LDG_A_STAGE_I(2);
-        XH_MMA_STAGE_MNKX2(0, 4, 6);
+        XH_MMA_STAGE_MNKX2(0, 2, 2, 6);
         XH_LDG_A_STAGE_I(3);
-        XH_MMA_STAGE_MNKX2(0, 5, 4);
-        XH_MMA_STAGE_MNKX2(0, 5, 6);
-        XH_MMA_STAGE_MNKX2(0, 6, 4);
+        XH_MMA_STAGE_MNKX2(0, 3, 3, 6);
         XH_LDS_A_B128(1, 0);
-        XH_MMA_STAGE_MNKX2(0, 6, 6);
-        XH_MMA_STAGE_MNKX2(0, 7, 4);
-        a_base += kMmaTileK;
-        XH_MMA_STAGE_MNKX2(0, 7, 6);
-
-        __syncthreadshared();
-        XH_MMA_STAGE_MNKX2(1, 0, 0);
         XH_LDS_A_B128(1, 1);
-        XH_MMA_STAGE_MNKX2(1, 0, 2);
-        XH_MMA_STAGE_MNKX2(1, 1, 0);
-        XH_MMA_STAGE_MNKX2(1, 1, 2);
-        XH_MMA_STAGE_MNKX2(1, 2, 0);
-        XH_MMA_STAGE_MNKX2(1, 2, 2);
-        XH_MMA_STAGE_MNKX2(1, 3, 0);
-        XH_MMA_STAGE_MNKX2(1, 3, 2);
+        a_base += kMmaTileK;
 
-        XH_MMA_STAGE_MNKX2(1, 4, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b[0], MmaLoad128);
-        XH_MMA_STAGE_MNKX2(1, 4, 2);
-        XH_MMA_STAGE_MNKX2(1, 5, 0);
-        XH_MMA_STAGE_MNKX2(1, 5, 2);
-        XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b[1], MmaLoad128);
-        XH_MMA_STAGE_MNKX2(1, 6, 0);
-        XH_MMA_STAGE_MNKX2(1, 6, 2);
-        XH_MMA_STAGE_MNKX2(1, 7, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b[2], MmaLoad128);
-        XH_MMA_STAGE_MNKX2(1, 7, 2);
+        XH_MMA_STAGE_MNKX2(1, 0, 0, 0);
+        XH_MMA_STAGE_MNKX2(1, 1, 1, 0);
+        XH_MMA_STAGE_MNKX2(1, 2, 2, 0);
+        XH_MMA_STAGE_MNKX2(1, 3, 3, 0);
+        XH_MMA_STAGE_MNKX2(1, 0, 0, 2);
+        XH_MMA_STAGE_MNKX2(1, 1, 1, 2);
+        XH_MMA_STAGE_MNKX2(1, 2, 2, 2);
+        XH_MMA_STAGE_MNKX2(1, 3, 3, 2);
+        XH_MMA_STAGE_MNKX2(1, 0, 0, 4);
+        XH_MMA_STAGE_MNKX2(1, 1, 1, 4);
+        XH_MMA_STAGE_MNKX2(1, 2, 2, 4);
+        XH_MMA_STAGE_MNKX2(1, 3, 3, 4);
+        XH_MMA_STAGE_MNKX2(1, 0, 0, 6);
+        XH_LDS_B_B128(0, 4, 0);
+        XH_LDS_B_B128(0, 4, 1);
+        XH_MMA_STAGE_MNKX2(1, 1, 1, 6);
+        XH_LDS_B_B128(1, 5, 0);
+        XH_LDS_B_B128(1, 5, 1);
+        XH_MMA_STAGE_MNKX2(1, 2, 2, 6);
+        XH_LDS_B_B128(2, 6, 0);
+        XH_LDS_B_B128(2, 6, 1);
+        XH_MMA_STAGE_MNKX2(1, 3, 3, 6);
+        XH_LDS_B_B128(3, 7, 0);
+        XH_LDS_B_B128(3, 7, 1);
 
-        XH_MMA_STAGE_MNKX2(1, 0, 4);
-        XH_MMA_STAGE_MNKX2(1, 0, 6);
-        XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b[3], MmaLoad128);
-        XH_MMA_STAGE_MNKX2(1, 1, 4);
-        XH_MMA_STAGE_MNKX2(1, 1, 6);
-        XH_MMA_STAGE_MNKX2(1, 2, 4);
-        XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a[0], MmaLoad128);
-        XH_MMA_STAGE_MNKX2(1, 2, 6);
-        XH_MMA_STAGE_MNKX2(1, 3, 4);
-        XH_MMA_STAGE_MNKX2(1, 3, 6);
-        XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a[1], MmaLoad128);
-
-        XH_MMA_STAGE_MNKX2(1, 4, 4);
-        XH_MMA_STAGE_MNKX2(1, 4, 6);
-        XH_MMA_STAGE_MNKX2(1, 5, 4);
         __syncthreadshared();
-        XH_MMA_STAGE_MNKX2(1, 5, 6);
+        XH_MMA_STAGE_MNKX2(0, 4, 0, 0);
+        XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b[0], MmaLoad128);
+        XH_MMA_STAGE_MNKX2(0, 5, 1, 0);
+        XH_MMA_STAGE_MNKX2(0, 6, 2, 0);
+        XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b[1], MmaLoad128);
+        XH_MMA_STAGE_MNKX2(0, 7, 3, 0);
+        XH_MMA_STAGE_MNKX2(0, 4, 0, 2);
+        XH_MMA_STAGE_MNKX2(0, 5, 1, 2);
+        XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b[2], MmaLoad128);
+        XH_MMA_STAGE_MNKX2(0, 6, 2, 2);
+        XH_MMA_STAGE_MNKX2(0, 7, 3, 2);
+        XH_MMA_STAGE_MNKX2(0, 4, 0, 4);
+        XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b[3], MmaLoad128);
+        XH_MMA_STAGE_MNKX2(0, 5, 1, 4);
+        XH_MMA_STAGE_MNKX2(0, 6, 2, 4);
+        XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a[0], MmaLoad128);
+        XH_MMA_STAGE_MNKX2(0, 7, 3, 4);
+        XH_MMA_STAGE_MNKX2(0, 4, 0, 6);
+        XH_MMA_STAGE_MNKX2(0, 5, 1, 6);
+        XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a[1], MmaLoad128);
+        XH_MMA_STAGE_MNKX2(0, 6, 2, 6);
+        XH_MMA_STAGE_MNKX2(0, 7, 3, 6);
+
+        XH_MMA_STAGE_MNKX2(1, 4, 0, 0);
+        XH_MMA_STAGE_MNKX2(1, 5, 1, 0);
+        XH_MMA_STAGE_MNKX2(1, 6, 2, 0);
+        XH_MMA_STAGE_MNKX2(1, 7, 3, 0);
+        XH_MMA_STAGE_MNKX2(1, 4, 0, 2);
+        XH_MMA_STAGE_MNKX2(1, 5, 1, 2);
+        XH_MMA_STAGE_MNKX2(1, 6, 2, 2);
+        XH_MMA_STAGE_MNKX2(1, 7, 3, 2);
+        XH_MMA_STAGE_MNKX2(1, 4, 0, 4);
+        XH_MMA_STAGE_MNKX2(1, 5, 1, 4);
+        XH_MMA_STAGE_MNKX2(1, 6, 2, 4);
+        XH_MMA_STAGE_MNKX2(1, 7, 3, 4);
+        XH_MMA_STAGE_MNKX2(1, 4, 0, 6);
+        XH_MMA_STAGE_MNKX2(1, 5, 1, 6);
+
+        __syncthreadshared();
         XH_LDS_A_B128(0, 0);
-        XH_LDS_B_B128(0, 0);
-        XH_MMA_STAGE_MNKX2(1, 6, 4);
-        XH_LDS_B_B128(1, 0);
-        XH_MMA_STAGE_MNKX2(1, 6, 6);
-        XH_LDS_B_B128(2, 0);
-        XH_MMA_STAGE_MNKX2(1, 7, 4);
-        XH_LDS_B_B128(3, 0);
-        XH_MMA_STAGE_MNKX2(1, 7, 6);
+        XH_LDS_B_B128(0, 0, 0);
+        XH_LDS_B_B128(1, 1, 0);
+        XH_MMA_STAGE_MNKX2(1, 6, 2, 6);
+        XH_LDS_B_B128(2, 2, 0);
+        XH_MMA_STAGE_MNKX2(1, 7, 3, 6);
+        XH_LDS_B_B128(3, 3, 0);
     }
 
     int output_row[8];
-    XH_MMA_STAGE_MNKX2(0, 0, 0);
-    XH_LDS_B_B128(4, 0);
-    XH_MMA_STAGE_MNKX2(0, 0, 2);
-    XH_LDS_B_B128(5, 0);
-    XH_MMA_STAGE_MNKX2(0, 1, 0);
-    XH_LDS_B_B128(6, 0);
-    XH_MMA_STAGE_MNKX2(0, 1, 2);
-    XH_LDS_B_B128(7, 0);
-    XH_MMA_STAGE_MNKX2(0, 2, 0);
+    XH_MMA_STAGE_MNKX2(0, 0, 0, 0);
+    XH_LDS_B_B128(0, 0, 1);
+    XH_MMA_STAGE_MNKX2(0, 1, 1, 0);
+    XH_LDS_B_B128(1, 1, 1);
+    XH_MMA_STAGE_MNKX2(0, 2, 2, 0);
+    XH_LDS_B_B128(2, 2, 1);
     const int row_thread_base = row_base + mma_output_row_local(tid, 0, 0);
-    XH_MMA_STAGE_MNKX2(0, 2, 2);
-    XH_MMA_STAGE_MNKX2(0, 3, 0);
-    XH_MMA_STAGE_MNKX2(0, 3, 2);
+    XH_MMA_STAGE_MNKX2(0, 3, 3, 0);
+    XH_LDS_B_B128(3, 3, 1);
+    XH_MMA_STAGE_MNKX2(0, 0, 0, 2);
+    XH_MMA_STAGE_MNKX2(0, 1, 1, 2);
+    XH_MMA_STAGE_MNKX2(0, 2, 2, 2);
+    XH_MMA_STAGE_MNKX2(0, 3, 3, 2);
 
 #pragma unroll
     for (int j = 0; j < 4; ++j) {
         output_row[j] = row_thread_base + j;
     }
 
-    XH_MMA_STAGE_MNKX2(0, 4, 0);
     XH_LDS_A_B128(0, 1);
-    XH_MMA_STAGE_MNKX2(0, 4, 2);
-    XH_LDS_B_B128(0, 1);
-    XH_MMA_STAGE_MNKX2(0, 5, 0);
-    XH_LDS_B_B128(1, 1);
-    XH_MMA_STAGE_MNKX2(0, 5, 2);
-    XH_LDS_B_B128(2, 1);
-    XH_MMA_STAGE_MNKX2(0, 6, 0);
-    XH_LDS_B_B128(3, 1);
-    XH_MMA_STAGE_MNKX2(0, 6, 2);
-    XH_MMA_STAGE_MNKX2(0, 7, 0);
-    XH_MMA_STAGE_MNKX2(0, 7, 2);
-
-    XH_LDS_B_B128(4, 1);
-    XH_MMA_STAGE_MNKX2(0, 0, 4);
-    XH_LDS_B_B128(5, 1);
-    XH_MMA_STAGE_MNKX2(0, 0, 6);
-    XH_LDS_B_B128(6, 1);
-    XH_MMA_STAGE_MNKX2(0, 1, 4);
-    XH_LDS_B_B128(7, 1);
-    XH_MMA_STAGE_MNKX2(0, 1, 6);
-    XH_MMA_STAGE_MNKX2(0, 2, 4);
+    XH_MMA_STAGE_MNKX2(0, 0, 0, 4);
+    XH_MMA_STAGE_MNKX2(0, 1, 1, 4);
+    XH_MMA_STAGE_MNKX2(0, 2, 2, 4);
+    XH_MMA_STAGE_MNKX2(0, 3, 3, 4);
     XH_MMA_STS(shared_a_tensor(store_row_a[2], store_col), load_a[2], MmaLoad128);
-    XH_MMA_STAGE_MNKX2(0, 2, 6);
-    XH_MMA_STAGE_MNKX2(0, 3, 4);
-    XH_MMA_STAGE_MNKX2(0, 3, 6);
+    XH_MMA_STAGE_MNKX2(0, 0, 0, 6);
+    XH_MMA_STAGE_MNKX2(0, 1, 1, 6);
     XH_MMA_STS(shared_a_tensor(store_row_a[3], store_col), load_a[3], MmaLoad128);
-
-    XH_MMA_STAGE_MNKX2(0, 4, 4);
-    XH_MMA_STAGE_MNKX2(0, 4, 6);
-    XH_MMA_STAGE_MNKX2(0, 5, 4);
-    XH_MMA_STAGE_MNKX2(0, 5, 6);
-    XH_MMA_STAGE_MNKX2(0, 6, 4);
+    XH_MMA_STAGE_MNKX2(0, 2, 2, 6);
+    XH_MMA_STAGE_MNKX2(0, 3, 3, 6);
     XH_LDS_A_B128(1, 0);
-    XH_MMA_STAGE_MNKX2(0, 6, 6);
-    XH_MMA_STAGE_MNKX2(0, 7, 4);
-    XH_MMA_STAGE_MNKX2(0, 7, 6);
+    XH_LDS_A_B128(1, 1);
 
 #pragma unroll
     for (int j = 0; j < 4; ++j) {
         output_row[4 + j] = row_base + mma_output_row_local(tid, 1, j);
     }
 
-    XH_MMA_STAGE_MNKX2(1, 0, 0);
-    XH_MMA_STAGE_MNKX2(1, 0, 2);
-    XH_MMA_STAGE_MNKX2(1, 1, 0);
-    XH_MMA_STAGE_MNKX2(1, 1, 2);
-    XH_MMA_STAGE_MNKX2(1, 2, 0);
-    XH_MMA_STAGE_MNKX2(1, 2, 2);
-    XH_MMA_STAGE_MNKX2(1, 3, 0);
-    XH_MMA_STAGE_MNKX2(1, 3, 2);
+    XH_MMA_STAGE_MNKX2(1, 0, 0, 0);
+    XH_MMA_STAGE_MNKX2(1, 1, 1, 0);
+    XH_MMA_STAGE_MNKX2(1, 2, 2, 0);
+    XH_MMA_STAGE_MNKX2(1, 3, 3, 0);
+    XH_MMA_STAGE_MNKX2(1, 0, 0, 2);
+    XH_MMA_STAGE_MNKX2(1, 1, 1, 2);
+    XH_MMA_STAGE_MNKX2(1, 2, 2, 2);
+    XH_MMA_STAGE_MNKX2(1, 3, 3, 2);
+    XH_MMA_STAGE_MNKX2(1, 0, 0, 4);
+    XH_MMA_STAGE_MNKX2(1, 1, 1, 4);
+    XH_MMA_STAGE_MNKX2(1, 2, 2, 4);
+    XH_MMA_STAGE_MNKX2(1, 3, 3, 4);
+    XH_MMA_STAGE_MNKX2(1, 0, 0, 6);
+    XH_LDS_B_B128(0, 4, 0);
+    XH_LDS_B_B128(0, 4, 1);
+    XH_MMA_STAGE_MNKX2(1, 1, 1, 6);
+    XH_LDS_B_B128(1, 5, 0);
+    XH_LDS_B_B128(1, 5, 1);
+    XH_MMA_STAGE_MNKX2(1, 2, 2, 6);
+    XH_LDS_B_B128(2, 6, 0);
+    XH_LDS_B_B128(2, 6, 1);
+    XH_MMA_STAGE_MNKX2(1, 3, 3, 6);
+    XH_LDS_B_B128(3, 7, 0);
+    XH_LDS_B_B128(3, 7, 1);
 
-    XH_MMA_STAGE_MNKX2(1, 4, 0);
-    XH_MMA_STAGE_MNKX2(1, 4, 2);
-    XH_LDS_A_B128(1, 1);
-    XH_MMA_STAGE_MNKX2(1, 5, 0);
-    XH_MMA_STAGE_MNKX2(1, 5, 2);
-    XH_MMA_STAGE_MNKX2(1, 6, 0);
-    XH_MMA_STAGE_MNKX2(1, 6, 2);
-    XH_MMA_STAGE_MNKX2(1, 7, 0);
-    XH_MMA_STAGE_MNKX2(1, 7, 2);
+    XH_MMA_STAGE_MNKX2(0, 4, 0, 0);
+    XH_MMA_STAGE_MNKX2(0, 5, 1, 0);
+    XH_MMA_STAGE_MNKX2(0, 6, 2, 0);
+    XH_MMA_STAGE_MNKX2(0, 7, 3, 0);
+    XH_MMA_STAGE_MNKX2(0, 4, 0, 2);
+    XH_MMA_STAGE_MNKX2(0, 5, 1, 2);
+    XH_MMA_STAGE_MNKX2(0, 6, 2, 2);
+    XH_MMA_STAGE_MNKX2(0, 7, 3, 2);
+    XH_MMA_STAGE_MNKX2(0, 4, 0, 4);
+    XH_MMA_STAGE_MNKX2(0, 5, 1, 4);
+    XH_MMA_STAGE_MNKX2(0, 6, 2, 4);
+    XH_MMA_STAGE_MNKX2(0, 7, 3, 4);
+    XH_MMA_STAGE_MNKX2(0, 4, 0, 6);
+    XH_MMA_STAGE_MNKX2(0, 5, 1, 6);
+    XH_MMA_STAGE_MNKX2(0, 6, 2, 6);
+    XH_MMA_STAGE_MNKX2(0, 7, 3, 6);
 
-    XH_MMA_STAGE_MNKX2(1, 0, 4);
-    XH_MMA_STAGE_MNKX2(1, 0, 6);
-    XH_MMA_STAGE_MNKX2(1, 1, 4);
-    XH_MMA_STAGE_MNKX2(1, 1, 6);
-    XH_MMA_STAGE_MNKX2(1, 2, 4);
-    XH_MMA_STAGE_MNKX2(1, 2, 6);
-    XH_MMA_STAGE_MNKX2(1, 3, 4);
-    XH_MMA_STAGE_MNKX2(1, 3, 6);
-
-    XH_MMA_STAGE_MNKX2(1, 4, 4);
-    XH_MMA_STAGE_MNKX2(1, 4, 6);
-    XH_MMA_STAGE_MNKX2(1, 5, 4);
-    XH_MMA_STAGE_MNKX2(1, 5, 6);
-    XH_MMA_STAGE_MNKX2(1, 6, 4);
-    XH_MMA_STAGE_MNKX2(1, 6, 6);
-    XH_MMA_STAGE_MNKX2(1, 7, 4);
-    XH_MMA_STAGE_MNKX2(1, 7, 6);
+    XH_MMA_STAGE_MNKX2(1, 4, 0, 0);
+    XH_MMA_STAGE_MNKX2(1, 5, 1, 0);
+    XH_MMA_STAGE_MNKX2(1, 6, 2, 0);
+    XH_MMA_STAGE_MNKX2(1, 7, 3, 0);
+    XH_MMA_STAGE_MNKX2(1, 4, 0, 2);
+    XH_MMA_STAGE_MNKX2(1, 5, 1, 2);
+    XH_MMA_STAGE_MNKX2(1, 6, 2, 2);
+    XH_MMA_STAGE_MNKX2(1, 7, 3, 2);
+    XH_MMA_STAGE_MNKX2(1, 4, 0, 4);
+    XH_MMA_STAGE_MNKX2(1, 5, 1, 4);
+    XH_MMA_STAGE_MNKX2(1, 6, 2, 4);
+    XH_MMA_STAGE_MNKX2(1, 7, 3, 4);
+    XH_MMA_STAGE_MNKX2(1, 4, 0, 6);
+    XH_MMA_STAGE_MNKX2(1, 5, 1, 6);
+    XH_MMA_STAGE_MNKX2(1, 6, 2, 6);
+    XH_MMA_STAGE_MNKX2(1, 7, 3, 6);
 
     MmaInt4 output[kMmaOutputVectors];
 #pragma unroll
