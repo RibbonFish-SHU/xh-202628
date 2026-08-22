@@ -270,6 +270,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-19T14:15:46+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/117984"
+    },
+    {
+      "commit": "fb2d10b19cebea1b9d2ccc569db83b11ea800842",
+      "evidence": "artifacts/raw/xpuoj/121831",
+      "experiment": "exp-20260819-019",
+      "id": "121831",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/64/89/83; user kernel times 1015 us/12 ms/549 us/4146 us; paired 64x128 case-2 tile regressed target performance; best remains 82.25.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "24",
+      "report_summary": "exp-20260819-019 accepted 4/4 at 79.75 (83/64/89/83; 1015us/12ms/549us/4146us); paired 64x128 case-2 CTA regressed case 2 by 9 points and ~47% latency versus best; hypothesis rejected; best remains 82.25 and live rank is 24.",
+      "reported_at": "2026-08-22T05:10:01+00:00",
+      "reported_to_user": true,
+      "score": "79.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T13:02:53+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/121831"
     }
   ],
   "version": 1

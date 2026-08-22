@@ -1,6 +1,6 @@
 # Project State
 
-更新时间：2026-08-19（Asia/Shanghai）
+更新时间：2026-08-22（Asia/Shanghai）
 
 ## 门禁状态
 
@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | 报名与审核 | complete | 用户已报名并审核通过 |
 | XPU-OJ 账号 | complete | 用户已取得账号并登录 |
-| 目标 OJ 入口 | verified | `https://xpuoj.com/contest/12/problem/1`，2026-08-19 已登录页面复核 |
+| 目标 OJ 入口 | verified | `https://xpuoj.com/contest/12/problem/1`，2026-08-22 已登录页面复核 |
 | 目标算子 | verified | 页面标题确认 `Agent 推理算子库优化 - Fused MoE i8 tn` |
-| 实时合同快照 | partial | CUDA Maca 与 Triton 签名、4 组 shape、容差和环境已复核；2026-08-19 提交页未显示配额/冷却且四台 C500 在线；TileLang 待实际使用前复核 |
+| 实时合同快照 | partial | CUDA Maca 与 Triton 签名、4 组 shape、容差和环境已复核；2026-08-22 提交页未显示配额/冷却，目标硬件为 C500；TileLang 待实际使用前复核 |
 | 本地工作区 | complete | `E:\XH-202628\xh-202628-agent` 是唯一可信源码工作区 |
 | 本地 Git 仓库 | connected | `main` 跟踪 `origin/main`；作者沿用远端提交 `Yuyang Dai <dyyshanghai@shu.edu.cn>` |
 | 远端 SSH 只读探测 | complete | 已检查 `lynsdu2@10.0.33.75`，未写入 |
@@ -34,8 +34,9 @@
 | Fused MoE Triton stages=4 候选 | target-no-gain | `exp-20260819-016` / `1247732` 单旋钮 num_stages 3→4；OJ `#117753` Accepted 68.75（71、55、80、69；2056 us、18 ms、1084 us、9 ms），相对 stages=3 基线 69.5 略降；加深流水无收益，case 2 仍约 0.45 TB/s |
 | Fused MoE Triton warps=4 候选 | target-no-gain | `exp-20260819-017` / `677f957` 单旋钮 num_warps 8→4；OJ `#117948` Accepted 69.5（71、57、80、70；2056 us、17 ms、1069 us、9 ms），与 warps=8 基线持平；stages 与 warps 两个流水旋钮均无效，Triton case 2 钉在约 0.47 TB/s / 113 TOPS，指向 tl.dot int8 下沉开销上限 |
 | Fused MoE Triton BLOCK_K=32 诊断 | target-rejected | `exp-20260819-018` / `89fc315` 单旋钮 BLOCK_K 64→32；OJ `#117984` Accepted 58（59、43、71、59；3510 us、29 ms、1736 us、15 ms），case 2 随 dot 调用数翻倍从 17 ms 增至 29 ms，确认 tl.dot int8 下沉计算封顶，Triton 线关闭；Triton 文件已回退到 69.5 基线配置 |
+| Fused MoE paired 64x128 候选 | target-regressed | `exp-20260819-019` / `fb2d10b19ceb` 仅把 case 2 拆为成对 64x128x128 CTA，LDS 从 32 KiB 降到 24 KiB 并减半累加器；OJ `#121831` 4/4 Accepted，但仅 79.75 分（83、64、89、83；1015 us、12 ms、549 us、4146 us），case 2 相对最佳慢约 47%，占用率假设被否决；活动源码已精确恢复为 `8c519e6` 最佳核心 |
 | C500 本地算力 | unavailable | 当前未提供 |
-| Agent OJ 提交次数 | 15 | `#116962` CE/0 分；`#116973` Accepted/11 分；`#117017` CE/0 分；`#117034` Accepted/81.5 分；`#117056` Accepted/81.75 分/排名 23；`#117079` Accepted/79.25 分；`#117114` Accepted/82.25 分/排名 20；`#117118` Accepted/82.00 分；`#117384` Accepted/81.75 分/排名 20（用户手动提交）；`#117643` Accepted/81.75 分/排名 20；`#117721` WA/0 分；`#117737` Triton/Accepted/69.5 分；`#117753` Triton/Accepted/68.75 分；`#117948` Triton/Accepted/69.5 分；`#117984` Triton/Accepted/58 分；均已报告 |
+| Agent OJ 提交次数 | 16 | `#116962` CE/0 分；`#116973` Accepted/11 分；`#117017` CE/0 分；`#117034` Accepted/81.5 分；`#117056` Accepted/81.75 分/排名 23；`#117079` Accepted/79.25 分；`#117114` Accepted/82.25 分/提交时排名 20；`#117118` Accepted/82.00 分；`#117384` Accepted/81.75 分（用户手动提交）；`#117643` Accepted/81.75 分；`#117721` WA/0 分；`#117737` Triton/Accepted/69.5 分；`#117753` Triton/Accepted/68.75 分；`#117948` Triton/Accepted/69.5 分；`#117984` Triton/Accepted/58 分；`#121831` CUDA Maca/Accepted/79.75 分；均已报告，当前最佳 82.25、实时排名 24 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
 
 机器可读远端门禁见 `state/remote-execution.json`。
@@ -83,7 +84,7 @@
 
 ## 当前技术阶段与下一步
 
-1. 当前榜单最佳基线为 `8c519e6c1bb57e7b124b60806db9575fa1267207` / `exp-20260819-010`；OJ `#117114` 已验证其 MXMACA 编译、A-first allocation-range shape 推断、无谓词 A load 和 4/4 wave-MMA 正确性，C500 得分 82.25、排名 20。活动源码在此基础上保留 `exp-20260819-011` 的 case-2 常量实例和 `exp-20260819-012` 的 exact-tile 无谓词 load/store；`#117118`（82.00）与 `#117384`（81.75）均未超过最佳，不得称为新最佳，且 `#117384` 已证明剩余谓词移除在目标上无收益。`b6e4272e9d8f` 仅保留为标量兼容回退。
+1. 当前榜单最佳基线和活动提交源码均为 `8c519e6c1bb57e7b124b60806db9575fa1267207` / `exp-20260819-010`；OJ `#117114` 已验证其 MXMACA 编译、A-first allocation-range shape 推断、无谓词 A load 和 4/4 wave-MMA 正确性，C500 得分 82.25。2026-08-22 实时榜排名 24、榜首 87。`#117118`（82.00）、`#117384`（81.75）、`#117643`（81.75）及 `#121831`（79.75）均未超过最佳，不得称为新最佳。`b6e4272e9d8f` 仅保留为标量兼容回退。
 2. `exp-20260818-003` / `3b7f02efb795` 的 `__dp4a` 优化已被 OJ `#116962` 目标编译结果否决；不得再次提交该 intrinsic。
 3. `#116973` 四组 C500 用户核时间为 41.947、333.856、21.359、170.268 ms，仅为官方 baseline 的 0.122x、0.068x、0.209x、0.127x；标量字节展开是主瓶颈。
 4. `exp-20260819-005` / `067e38fdd6f3` 已按上述设计实现：MACA 分支的 128 次 MMA 调用及 A/B LDS/LDG 序列与官方 standalone kernel 逐项一致，A/scale_a 改为直接 routed-row 索引；NVIDIA 分支保持标量基线。
@@ -97,7 +98,8 @@
 12. 结论与下一步：连续三次目标实验（case-2 常量特化、剩余谓词移除、MLP 负载提升）都无法移动 case 2 的 73 分 / 约 8.05 ms，且每次四点总分都在 81.75-82.25 噪声带内。强证据表明当前 128x128 流水核心已贴近 C500 有效带宽天花板（约 1.0 TB/s），继续盲提交边际调度改动没有意义。剩余候选方向：官方 `__builtin_mxc_ldg_b128_bsm` + `__builtin_mxc_arrive` 异步 G2S 两级流水（需先确认 arrive 非零计数语义，WA 风险需一次提交验证）；或暂停 case 2 性能投入，保留 82.25 版本，转入作品材料（Agent/Skill 可复现性、文档、报告）与 C500 算力获取。下一次 OJ 提交前必须先有明确的新假设。
 13. `exp-20260819-014` / `f2b5015107c6` 把 G2S 从 LDG→寄存器→STS 改为官方 `__builtin_mxc_ldg_b128_bsm` 异步直达 shared + 64 KiB 双缓冲，循环内 `__builtin_mxc_arrive(64 + 8)` + `__builtin_mxc_barrier_inst()` 等待上一 tile 批次，peeled 末 tile 用 `arrive(64)`；per-tile LDS/MMA 消费序列与旧尾部逐行一致，epilogue、特化、NVIDIA fallback 未动。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过；proxy 四组 median 为 45.529、338.724、21.530、171.744 ms。OJ `#117721` 终态 Wrong Answer、0 分、样例失败且四点全 Skipped：`arrive` 非零计数（或双缓冲延迟等待时序）在目标上不成立，异步 G2S 假设被否决。源码已由 `228a296` 回退到 `91156015d58a`（exp-013）状态。
 14. **方向决策更新（2026-08-19 晚，用户明确指示）**：用户否决了第 13 点曾有过的"转入作品材料"想法，明确当前目标为持续刷榜，要求按标准工作流（单假设 → commit → 远端 proxy → 一次 OJ 提交 → record/report → 下一假设）循环推进。榜单最佳冻结事实不变：`8c519e6c1bb5` / `#117114` 82.25 分、排名 20；活动源码为 `228a296`（exp-013 状态）。15. `exp-20260819-015` / `27c93a4` 开辟第二条技术路线：Triton routed-dot 内核（官方 starter 语义，128x128x64、num_warps=8、num_stages=3、bf16 store，保留 gather 回退）。远端无 Triton 环境，仅做 py_compile 静态检查后直连 OJ。`#117737` 以 4/4 Accepted 验证 Triton 3.0.0-on-MACA 编译与正确性：四点 72、56、80、70，用户核时间 1982 us、17 ms、1047 us、9 ms，总分 69.5，榜单最佳仍为 82.25、排名 20。case 2 约 0.47 TB/s，说明开箱配置离 CUDA Maca 手工核心（1.0 TB/s）差约 2.1x；Triton 路线的价值取决于调参空间（num_stages、BLOCK_K、num_warps、L2 swizzle）。
-16. 已否决方向汇总：`__dp4a`、128x256 G2S、case-2 常量特化（无收益但保留）、剩余谓词移除（无收益）、MLP 负载提升（无收益）、bsm 异步 G2S 双缓冲（WA）。四 case 在 CUDA Maca 核心下全部贴合 ~1.0 TB/s 有效带宽。当前活跃探索线：Triton 调参。`#117753` 已证明 num_stages 3→4 无收益（68.75 < 69.5），流水深度不是瓶颈旋钮；`#117948` 已证明 num_warps 8→4 无变化（69.5 持平）：stages、warps 两个流水旋钮均不动分，case 2 稳定 17-18 ms ≈ 0.47 TB/s / 113 TOPS，强证据指向 tl.dot int8 在 MACA Triton 上的下沉开销是硬上限而非内存调度问题。`#117984` 完成 Triton 线判决：BLOCK_K 64→32 后 case 2 从 17 ms 增至 29 ms（dot 调用数翻倍），运行时间随 dot 调用数缩放，确认 tl.dot int8 在 MACA Triton 上的下沉计算封顶，任何流水/几何旋钮都无法弥补约 2.1x 差距，Triton 线关闭（文件保留 69.5 基线配置作证据）。剩余唯一未试方向：CUDA Maca 核心的 CTA 光栅化/swizzle（tile 调度顺序改善 DRAM 局部性，下一假设 exp-20260819-019）；若再无收益则接受 82.25 / 排名 20 冻结。CUDA Maca 核心保留 82.25 作为榜单最佳。
+16. 已否决方向汇总：`__dp4a`、128x256 G2S、case-2 常量特化（无显示分收益）、剩余谓词移除、MLP 负载提升、bsm 异步 G2S 双缓冲（WA）、Triton stages/warps/BLOCK_K 调参，以及 paired 64x128 CTA。`#121831` 证明把 case 2 的 M tile 减半会把 B 读取和 CTA 数翻倍，12 ms 明显突破原核心约 8.1 ms 的带宽下限；不得再沿 M 拆分方向扫描。
+17. 下一轮只能从 82.25 分的 128x128 核心出发，优先寻找不增加 A/B 字节数的结构性改动。候选必须先从官方 MXMACA 材料或已验证指令语义中建立地址、同步和流量证明，再分配新实验 ID；不得恢复 `__dp4a`、128x256、64x128、非零 `arrive` 或已关闭的 Triton 调参线。
 
 ## NVIDIA 执行链路验证
 
@@ -114,9 +116,10 @@
 - `exp-20260819-010` / `8c519e6c1bb5`：只移除 MACA 128x128 MMA 核心的 A-load 行谓词，B load、双缓冲指令序列、网格、输出和 NVIDIA fallback 均未改变。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过；逐线程范围验证确认 gate-up/down 分别安全移除 224/64 次谓词。proxy/NVIDIA 四组 core median 为 45.375、338.715、21.527、171.780 ms，目标改动未在 NVIDIA 分支执行。OJ `#117114` 随后以 4/4 Accepted 验证 A 地址正确性与目标编译，四点得分 83、73、89、84，用户核时间 1.012、8.158、0.543、4.123 ms，总分 82.25、排名 20；决定保留。
 - `exp-20260819-011` / `48cf11b848ef`：只为 prefill gate-up 增加同一 MACA 128x128 内核的编译期 shape 实例，其他 shape、MMA 流水、共享内存、网格、尾声、shape inference 与 NVIDIA fallback 均不变。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过；回归确认四个公开 shape 中只有 prefill gate-up 命中特化。proxy/NVIDIA 四组 core median 为 42.719、338.761、21.530、171.751 ms。OJ `#117118` 以 4/4 Accepted 验证目标模板，case 2 为 73 分 / 8.058 ms，较 `#117114` 快 0.100 ms 但显示分未变；总分 82.00，决定保留为边际 case-2 底座而非最佳分数版本。
 - `exp-20260819-012` / `d680180dbaed`：移除 MACA 128x128 路径剩余的精确 tile load 谓词、B 行夹取、K 尾部和输出行列条件计算，store intrinsic 保持官方 b64 predicator 但条件常量化；目标指令流水和 NVIDIA fallback 不变。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过，新增回归逐线程验证每个 B/epilogue 向量地址。proxy/NVIDIA 四组 core median 为 45.537、338.885、21.530、171.750 ms；目标分支未在 NVIDIA 上执行，决定为 `investigate`，留待下一轮一次 OJ 验证。
+- `exp-20260819-019` / `fb2d10b19ceb`：只为 case 2 增加 paired 64x128x128 CTA；物理 GPU 1 上已提交快照通过 source/build/correctness/benchmark/regression，proxy/NVIDIA 四组 median 为 45.537、338.692、21.528、171.805 ms。OJ `#121831` 在 xcore1000 上编译并 4/4 Accepted，但 case 2 为 64 分 / 12 ms，较最佳 73 分 / 8.158 ms 慢约 47%；决定 `revert`，活动源码已精确恢复 `8c519e6` blob `58c7b241...`。
 - 上述原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。
 
-`exp-20260818-002` 到 `exp-20260819-012` 的 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#116973` 已确认 allocation-range shape 推断在评测分配器中可用且标量实现 4/4 正确；OJ `#117034` 和 `#117056` 已确认当前 MMA 后端及 `grid_x=1` 调度能够在目标上编译并通过 4/4 正确性；OJ `#117079` 已否决 128x256 G2S 性能假设；OJ `#117114` 已确认 exact-row A-load 候选的 4/4 正确性并将目标最佳分提高到 82.25；OJ `#117118` 已确认 case-2 常量模板的 4/4 正确性和 8.058 ms 边际收益，但显示分与排名未提升。`exp-20260819-012` 的剩余无谓词 load/store 条件路径仍待 OJ 验证。
+所有 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#117034` 和 `#117056` 已确认当前 MMA 后端及 `grid_x=1` 调度能在目标编译并 4/4 正确；OJ `#117079`、`#117721`、`#117984` 与 `#121831` 分别否决 128x256、非零-arrive BSM、Triton BLOCK_K 和 paired 64x128 路线；OJ `#117114` 仍是 82.25 分最佳。
 
 ## XPU-OJ 提交记录
 
@@ -135,3 +138,4 @@
 - `#117753` / `2026-08-19 18:48:31 +08:00` / `1247732` / Triton：`Accepted`，4/4 正确，68.75 分，榜单最佳仍为 82.25、排名 20。四组分数为 71、55、80、69，用户核时间为 2056 us、18 ms、1084 us、9 ms；num_stages 3→4 单旋钮实验，相对 `#117737` 的 69.5 略降，流水加深无收益。证据位于忽略目录 `artifacts/raw/xpuoj/117753/`，submission ledger 已登记、向用户报告并清空门禁。
 - `#117948` / `2026-08-19 21:46:40 +08:00` / `677f957` / Triton：`Accepted`，4/4 正确，69.5 分，榜单最佳仍为 82.25、排名 20。四组分数为 71、57、80、70，用户核时间为 2056 us、17 ms、1069 us、9 ms；num_warps 8→4 单旋钮实验，与 warps=8 基线持平，流水旋钮全部无效，指向 tl.dot int8 下沉上限。证据位于忽略目录 `artifacts/raw/xpuoj/117948/`，submission ledger 已登记、向用户报告并清空门禁。
 - `#117984` / `2026-08-19 22:10:05 +08:00` / `89fc315` / Triton：`Accepted`，4/4 正确，58 分，榜单最佳仍为 82.25、排名 20。四组分数为 59、43、71、59，用户核时间为 3510 us、29 ms、1736 us、15 ms；BLOCK_K 64→32 诊断实验，case 2 随 dot 调用数翻倍显著变慢，确认 tl.dot int8 下沉计算封顶，Triton 线关闭。证据位于忽略目录 `artifacts/raw/xpuoj/117984/`，submission ledger 已登记、向用户报告并清空门禁。
+- `#121831` / `2026-08-22 13:02:53 +08:00` / `fb2d10b19ceb` / CUDA Maca：`Accepted`，4/4 正确，79.75 分，页面汇总 18 ms / 22.6 G；四组分数为 83、64、89、83，用户核时间为 1015 us、12 ms、549 us、4146 us。paired 64x128 case-2 CTA 相对最佳 73 分 / 8.158 ms 明显回退，总分低 2.50；榜单最佳仍为 82.25，2026-08-22 实时排名 24。证据位于忽略目录 `artifacts/raw/xpuoj/121831/`，submission ledger 已登记、向用户报告并清空门禁；活动源码已恢复 `8c519e6`。
