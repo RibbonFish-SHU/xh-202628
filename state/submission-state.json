@@ -590,6 +590,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T21:12:34+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122954"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-034-direct-a-frag",
+      "claim_id": "claim-4c15ecb16fc94dee8ecac93d275d4d0c",
+      "commit": "4cc1255081ae9fbbeb626566402b06aaeca0e3dd",
+      "evidence": "artifacts/raw/xpuoj/122971",
+      "experiment": "exp-20260823-034",
+      "id": "122971",
+      "language": "CUDA Maca",
+      "notes": "Direct global-A fragments compiled and passed 4/4, but regressed to 77/66/85/78 and 76.5 total; exact user-kernel times 1.499/11.683/0.781/5.993 ms. Restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "76.5",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T21:40:43+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122971"
     }
   ],
   "version": 2
