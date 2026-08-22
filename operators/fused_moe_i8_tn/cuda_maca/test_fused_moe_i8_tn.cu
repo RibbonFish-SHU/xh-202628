@@ -428,6 +428,60 @@ void verify_mma_grid_mapping() {
     }
 }
 
+int count_adjacent_m_pair_leaders(const std::vector<int32_t>& experts) {
+    std::vector<int> visits(experts.size(), 0);
+    int leaders = 0;
+    for (int tile_m = 0; tile_m < static_cast<int>(experts.size()); ++tile_m) {
+        const int expert = experts[tile_m];
+        if (tile_m > 0
+            && xh_fused_moe::mma_adjacent_m_is_follower(
+                tile_m, expert, experts[tile_m - 1])) {
+            continue;
+        }
+        const int next_expert = tile_m + 1 < static_cast<int>(experts.size())
+            ? experts[tile_m + 1]
+            : -1;
+        const int tile_count = xh_fused_moe::mma_adjacent_m_tile_count(
+            tile_m, static_cast<int>(experts.size()), expert, next_expert);
+        for (int paired_tile = 0; paired_tile < tile_count; ++paired_tile) {
+            const int logical_tile_m = tile_m + paired_tile;
+            if (logical_tile_m >= static_cast<int>(experts.size())
+                || experts[logical_tile_m] != expert) {
+                throw std::runtime_error("adjacent-M pair crossed an expert boundary");
+            }
+            ++visits[logical_tile_m];
+        }
+        ++leaders;
+    }
+    if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("adjacent-M pair mapping does not cover each tile exactly once");
+    }
+    return leaders;
+}
+
+void verify_adjacent_m_pair_mapping() {
+    const std::vector<int32_t> all_same(256, 7);
+    const std::vector<int32_t> all_unique = {0, 1, 2, 3, 4, 5, 6, 7};
+    const std::vector<int32_t> mixed_runs = {3, 3, 3, 8, 8, 9, 9, 9};
+    const std::vector<int32_t> alternating = {4, 5, 4, 5, 4, 5, 4, 5};
+    if (count_adjacent_m_pair_leaders(all_same) != 128
+        || count_adjacent_m_pair_leaders(all_unique) != 8
+        || count_adjacent_m_pair_leaders(mixed_runs) != 6
+        || count_adjacent_m_pair_leaders(alternating) != 8) {
+        throw std::runtime_error("adjacent-M pair leader count mismatch");
+    }
+
+    for (const PublicCase& public_case : kPublicCases) {
+        const bool expected = std::string(public_case.name) == "prefill-gate-up";
+        if (xh_fused_moe::use_case2_adjacent_m_pair(public_case.config) != expected) {
+            throw std::runtime_error(
+                std::string("adjacent-M pair dispatch mismatch for ") + public_case.name);
+        }
+    }
+    std::cout << "REGRESSION maca-adjacent-m-pair arbitrary-order=PASS"
+              << " all-same-leaders=128/256 case2-only=PASS\n";
+}
+
 void benchmark_public_case(const PublicCase& public_case) {
     const auto& config = public_case.config;
     const size_t a_count = static_cast<size_t>(config.em) * config.k;
@@ -556,6 +610,7 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_adjacent_m_pair_mapping();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
