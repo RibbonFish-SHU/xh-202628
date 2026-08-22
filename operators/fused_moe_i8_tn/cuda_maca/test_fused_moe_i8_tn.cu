@@ -428,6 +428,73 @@ void verify_mma_grid_mapping() {
     }
 }
 
+void verify_case2_cooperative_epilogue() {
+    constexpr int tile = 128;
+    constexpr int threads = 256;
+    int enabled_cases = 0;
+    for (const PublicCase& public_case : kPublicCases) {
+        const bool enabled = xh_fused_moe::use_case2_cooperative_epilogue(public_case.config);
+        const bool expected = public_case.config.em == 32768
+            && public_case.config.n == 4096
+            && public_case.config.k == 7168;
+        if (enabled != expected) {
+            throw std::runtime_error(
+                std::string("cooperative epilogue dispatch mismatch for ") + public_case.name);
+        }
+        enabled_cases += enabled ? 1 : 0;
+    }
+    if (enabled_cases != 1) {
+        throw std::runtime_error("cooperative epilogue must specialize exactly case 2");
+    }
+
+    std::vector<int> row_loads(tile, 0);
+    std::vector<int> col_loads(tile, 0);
+    std::vector<int> row_consumers(tile, 0);
+    std::vector<int> col_consumers(tile, 0);
+    for (int thread_id = 0; thread_id < tile; ++thread_id) {
+        ++row_loads[thread_id];
+        ++col_loads[thread_id];
+    }
+    for (int thread_id = 0; thread_id < threads; ++thread_id) {
+        for (int group = 0; group < 2; ++group) {
+            for (int item = 0; item < 4; ++item) {
+                const int row = xh_fused_moe::mma_output_row_local(
+                    thread_id, group, item);
+                const int col = xh_fused_moe::mma_output_col_local(
+                    thread_id, group, item);
+                if (row < 0 || row >= tile || col < 0 || col >= tile) {
+                    throw std::runtime_error("cooperative epilogue lookup is out of tile bounds");
+                }
+                ++row_consumers[row];
+                ++col_consumers[col];
+            }
+        }
+    }
+    if (!std::all_of(row_loads.begin(), row_loads.end(), [](int count) { return count == 1; })
+        || !std::all_of(col_loads.begin(), col_loads.end(), [](int count) { return count == 1; })
+        || !std::all_of(
+            row_consumers.begin(), row_consumers.end(), [](int count) { return count == 16; })
+        || !std::all_of(
+            col_consumers.begin(), col_consumers.end(), [](int count) { return count == 16; })) {
+        throw std::runtime_error("cooperative epilogue scale coverage is not exact");
+    }
+
+    constexpr int baseline_global_scale_bytes =
+        threads * (2 * 4 * 2 + 2 * 4) * sizeof(float);
+    constexpr int cooperative_global_scale_bytes = tile * 3 * sizeof(float);
+    constexpr int reused_shared_bytes = 2 * tile * sizeof(float);
+    if (baseline_global_scale_bytes != 24576
+        || cooperative_global_scale_bytes != 1536
+        || baseline_global_scale_bytes != 16 * cooperative_global_scale_bytes
+        || reused_shared_bytes != 1024) {
+        throw std::runtime_error("cooperative epilogue byte model changed");
+    }
+    std::cout << "REGRESSION maca-case2-cooperative-epilogue exact-load-cover=PASS"
+              << " scale-global-bytes=" << baseline_global_scale_bytes
+              << "->" << cooperative_global_scale_bytes
+              << " reused-lds-bytes=" << reused_shared_bytes << "\n";
+}
+
 void benchmark_public_case(const PublicCase& public_case) {
     const auto& config = public_case.config;
     const size_t a_count = static_cast<size_t>(config.em) * config.k;
@@ -556,6 +623,7 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_case2_cooperative_epilogue();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
