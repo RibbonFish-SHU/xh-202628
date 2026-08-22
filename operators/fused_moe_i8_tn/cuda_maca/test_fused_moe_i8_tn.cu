@@ -552,11 +552,93 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+void verify_mma_b_pointer_induction() {
+    constexpr int tile_n_extent = 128;
+    constexpr int tile_k_extent = 128;
+    constexpr int threads = 256;
+    constexpr int loads_per_thread = 4;
+    constexpr int vector_bytes = 16;
+    for (const PublicCase& public_case : kPublicCases) {
+        const int n = public_case.config.n;
+        const int k = public_case.config.k;
+        const int n_tiles = n / tile_n_extent;
+        const int k_tiles = k / tile_k_extent;
+        const int k_head = (k - 1) % tile_k_extent + 1;
+        uint64_t checked_addresses = 0;
+        uint64_t checked_last_tiles = 0;
+        for (int tile_n = 0; tile_n < n_tiles; ++tile_n) {
+            const int remaining_cols = n - tile_n * tile_n_extent;
+            const int col_limit = std::min(remaining_cols, tile_n_extent);
+            for (int thread_id = 0; thread_id < threads; ++thread_id) {
+                const int lane = thread_id % 64;
+                const int load_k = (lane % 8) * vector_bytes;
+                const int load_b_row_base = thread_id / 8 * loads_per_thread;
+                for (int load = 0; load < loads_per_thread; ++load) {
+                    const int candidate_col = load_b_row_base + load;
+                    const int load_b_row =
+                        candidate_col < col_limit ? candidate_col : col_limit - 1;
+                    const uint64_t row_pointer =
+                        static_cast<uint64_t>(tile_n * tile_n_extent + load_b_row) * k
+                        + load_k;
+                    uint64_t induced_pointer = row_pointer;
+                    for (int tile_k = 0; tile_k < k_tiles - 1; ++tile_k) {
+                        const uint64_t cute_coordinate =
+                            static_cast<uint64_t>(tile_n * tile_n_extent + load_b_row) * k
+                            + tile_k * tile_k_extent + load_k;
+                        if (induced_pointer != cute_coordinate) {
+                            throw std::runtime_error(
+                                std::string("MMA B pointer induction mismatch for ")
+                                + public_case.name);
+                        }
+                        induced_pointer += tile_k_extent;
+                        ++checked_addresses;
+                    }
+
+                    const uint64_t last_tile_pointer =
+                        row_pointer + static_cast<uint64_t>(k_tiles - 1) * tile_k_extent;
+                    const uint64_t last_cute_coordinate =
+                        static_cast<uint64_t>(tile_n * tile_n_extent + load_b_row) * k
+                        + static_cast<uint64_t>(k_tiles - 1) * tile_k_extent + load_k;
+                    const bool last_tile_predicate = load_k < k_head;
+                    const bool last_coordinate_in_bounds =
+                        (k_tiles - 1) * tile_k_extent + load_k < k;
+                    if (induced_pointer != last_tile_pointer
+                        || last_tile_pointer != last_cute_coordinate
+                        || last_tile_predicate != last_coordinate_in_bounds
+                        || !last_tile_predicate
+                        || last_tile_pointer + vector_bytes > static_cast<uint64_t>(n) * k) {
+                        throw std::runtime_error(
+                            std::string("MMA B last-tile pointer mismatch for ")
+                            + public_case.name);
+                    }
+                    ++checked_addresses;
+                    ++checked_last_tiles;
+                }
+            }
+        }
+        const uint64_t expected_addresses =
+            static_cast<uint64_t>(n_tiles) * threads * loads_per_thread * k_tiles;
+        const uint64_t expected_last_tiles =
+            static_cast<uint64_t>(n_tiles) * threads * loads_per_thread;
+        if (checked_addresses != expected_addresses
+            || checked_last_tiles != expected_last_tiles) {
+            throw std::runtime_error(
+                std::string("MMA B pointer proof coverage mismatch for ")
+                + public_case.name);
+        }
+        std::cout << "REGRESSION maca-b-pointer-induction case=" << public_case.name
+                  << " addresses=" << checked_addresses
+                  << " last-tile-loads=" << checked_last_tiles
+                  << " step-bytes=" << tile_k_extent << " byte-equivalent=PASS\n";
+    }
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
+    verify_mma_b_pointer_induction();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

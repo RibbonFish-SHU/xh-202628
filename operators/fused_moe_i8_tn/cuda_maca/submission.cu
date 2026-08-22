@@ -181,7 +181,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
 #define XH_LDG_B_STAGE_I(ldgi)                                                                    \
     load_b[ldgi] = __builtin_mxc_ldg_b128(                                                        \
-        &(global_b(load_b_row[ldgi], load_k, tile_k)),                                            \
+        load_b_ptr[ldgi],                                                                         \
         0,                                                                                         \
         -1,                                                                                        \
         true,                                                                                      \
@@ -218,26 +218,22 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* expert_b =
         b_ptr + static_cast<uint64_t>(expert) * n * k;
 
-    Tensor matrix_b = make_tensor(
-        make_gmem_ptr(const_cast<int8_t*>(expert_b)),
-        make_shape(n, k),
-        make_stride(k, Int<1>{}));
-    Tensor global_b = local_tile(
-        matrix_b,
-        make_tile(Int<kMmaTileN>{}, Int<kMmaTileK>{}),
-        make_coord(tile_n, _));
-
     MmaLoad128 load_a[kMmaLoadsA];
     MmaLoad128 load_b[kMmaLoadsB];
     const int k_head = (k - 1) % kMmaTileK + 1;
     const int remaining_cols = n - tile_n * kMmaTileN;
     const int col_limit = remaining_cols < kMmaTileN ? remaining_cols : kMmaTileN;
-    int load_b_row[kMmaLoadsB];
+    int8_t* load_b_ptr[kMmaLoadsB];
     int load_a_row_offset[kMmaLoadsA];
     const int load_a_row_base = tid / 8;
     const int load_b_row_base = tid / 8 * kMmaLoadsB;
     const int load_k = (lane % 8) * 16;
     const int num_k_tiles = (k + kMmaTileK - 1) / kMmaTileK;
+    const uint64_t load_b_tile_offset =
+        static_cast<uint64_t>(tile_n) * kMmaTileN * k + load_k;
+    const uint64_t last_b_tile_offset =
+        static_cast<uint64_t>(num_k_tiles - 1) * kMmaTileK;
+    int8_t* load_b_tile_base = const_cast<int8_t*>(expert_b) + load_b_tile_offset;
 
     int8_t* a_base = const_cast<int8_t*>(a_ptr) + (num_k_tiles - 1) * kMmaTileK;
 
@@ -249,9 +245,11 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsB; ++i) {
         const int candidate_col = load_b_row_base + i;
-        load_b_row[i] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        const int load_b_row = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        load_b_ptr[i] =
+            load_b_tile_base + static_cast<uint64_t>(load_b_row) * k;
         load_b[i] = __builtin_mxc_ldg_b128_predicator(
-            &(global_b(load_b_row[i], load_k, num_k_tiles - 1)),
+            load_b_ptr[i] + last_b_tile_offset,
             0,
             true,
             true,
@@ -435,6 +433,10 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(1, 7, 4);
         XH_LDS_B_B128(3, 0);
         XH_MMA_STAGE_MNKX2(1, 7, 6);
+#pragma unroll
+        for (uint32_t i = 0; i < kMmaLoadsB; ++i) {
+            load_b_ptr[i] += kMmaTileK;
+        }
     }
 
     int output_row[8];
