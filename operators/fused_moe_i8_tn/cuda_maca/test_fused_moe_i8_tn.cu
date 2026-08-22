@@ -402,6 +402,119 @@ void verify_mma_output_mapping() {
               << " exact-cover=PASS\n";
 }
 
+void verify_mma_row_factor_shuffle() {
+    constexpr int tile_rows = 128;
+    constexpr int threads = 256;
+    constexpr int wave_size = 64;
+    constexpr int shuffle_width = 16;
+    constexpr int producers_per_group = 8;
+    constexpr int row_groups = 2;
+    constexpr int rows_per_group = 4;
+
+    std::vector<int> producer_row(threads, -1);
+    std::vector<int> visits(tile_rows, 0);
+    std::vector<float> scale_a(tile_rows);
+    std::vector<float> moe_weights(tile_rows);
+    std::vector<float> producer_factor(threads, 0.0f);
+    for (int row = 0; row < tile_rows; ++row) {
+        scale_a[row] = static_cast<float>((row % 29) - 14) * 0.03125f;
+        moe_weights[row] = static_cast<float>((row % 23) - 11) * 0.0625f;
+    }
+
+    int producer_count = 0;
+    for (int thread_id = 0; thread_id < threads; ++thread_id) {
+        const int wave = thread_id / wave_size;
+        const int lane = thread_id % wave_size;
+        const int group = lane >> 4;
+        const int group_lane = lane & 15;
+        if (group_lane < producers_per_group) {
+            const int row =
+                wave * 8
+                + (group & 1) * 4
+                + (group >> 1) * 32
+                + (group_lane >> 2) * 64
+                + (group_lane & 3);
+            if (row < 0 || row >= tile_rows) {
+                throw std::runtime_error("row-factor producer is outside its tile");
+            }
+            producer_row[thread_id] = row;
+            producer_factor[thread_id] = scale_a[row] * moe_weights[row];
+            ++visits[row];
+            ++producer_count;
+        }
+    }
+    if (producer_count != 128
+        || !std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("row-factor producers do not cover the tile exactly once");
+    }
+
+    int consumer_count = 0;
+    for (int thread_id = 0; thread_id < threads; ++thread_id) {
+        const int group_base = (thread_id / shuffle_width) * shuffle_width;
+        for (int i = 0; i < row_groups; ++i) {
+            for (int j = 0; j < rows_per_group; ++j) {
+                const int source_lane = i * rows_per_group + j;
+                const int source_thread = group_base + source_lane;
+                if (source_lane < 0 || source_lane >= producers_per_group
+                    || producer_row[source_thread] < 0) {
+                    throw std::runtime_error("row-factor shuffle source is not initialized");
+                }
+                const int expected_row = xh_fused_moe::mma_output_row_local(
+                    thread_id, i, j);
+                if (producer_row[source_thread] != expected_row) {
+                    throw std::runtime_error("row-factor shuffle consumer mapping differs");
+                }
+                const float expected_factor =
+                    scale_a[expected_row] * moe_weights[expected_row];
+                uint32_t expected_bits = 0;
+                uint32_t actual_bits = 0;
+                std::memcpy(&expected_bits, &expected_factor, sizeof(expected_bits));
+                std::memcpy(
+                    &actual_bits, &producer_factor[source_thread], sizeof(actual_bits));
+                if (actual_bits != expected_bits) {
+                    throw std::runtime_error("row-factor shuffle changed factor bits");
+                }
+                ++consumer_count;
+            }
+        }
+    }
+    if (consumer_count != threads * row_groups * rows_per_group) {
+        throw std::runtime_error("row-factor shuffle consumer count changed");
+    }
+
+    for (const PublicCase& public_case : kPublicCases) {
+        if ((public_case.config.em % tile_rows) != 0) {
+            throw std::runtime_error("public row count is not exact-tile aligned");
+        }
+        for (int row_base = 0; row_base < public_case.config.em; row_base += tile_rows) {
+            for (int local_row = 0; local_row < tile_rows; ++local_row) {
+                const int row = row_base + local_row;
+                if (row < 0 || row >= public_case.config.em) {
+                    throw std::runtime_error("public row-factor producer is out of bounds");
+                }
+            }
+        }
+    }
+
+    constexpr int baseline_b32_loads = threads * row_groups * rows_per_group * 2;
+    constexpr int candidate_b32_loads = 128 * 2;
+    constexpr int baseline_multiplies = threads * row_groups * rows_per_group;
+    constexpr int candidate_multiplies = 128;
+    constexpr int candidate_shuffles = threads * row_groups * rows_per_group;
+    static_assert(baseline_b32_loads == 4096, "baseline row-metadata load count changed");
+    static_assert(candidate_b32_loads == 256, "candidate row-metadata load count changed");
+    static_assert(baseline_multiplies == 2048, "baseline row-factor multiply count changed");
+    static_assert(candidate_multiplies == 128, "candidate row-factor multiply count changed");
+    static_assert(candidate_shuffles == 2048, "candidate shuffle count changed");
+    std::cout << "REGRESSION maca-row-factor-shuffle producers=" << producer_count
+              << " unique-rows=" << visits.size()
+              << " consumers=" << consumer_count
+              << " b32-loads=" << baseline_b32_loads << "->" << candidate_b32_loads
+              << " multiplies=" << baseline_multiplies << "->" << candidate_multiplies
+              << " shuffles=" << candidate_shuffles
+              << " exact-factor-bits=PASS\n";
+}
+
 void verify_mma_grid_mapping() {
     constexpr int tile_rows = 128;
     for (const PublicCase& public_case : kPublicCases) {
@@ -555,6 +668,7 @@ void verify_mma_a_load_bounds() {
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
+    verify_mma_row_factor_shuffle();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
