@@ -404,26 +404,16 @@ void verify_mma_output_mapping() {
 
 void verify_mma_grid_mapping() {
     constexpr int tile_rows = 128;
-    int serpentine_cases = 0;
     for (const PublicCase& public_case : kPublicCases) {
         const int grid_m = (public_case.config.em + tile_rows - 1) / tile_rows;
-        const int grid_n = (public_case.config.n + tile_rows - 1) / tile_rows;
         const int grid_x = xh_fused_moe::mma_grid_x(public_case.config);
         const int grid_z = (grid_m + grid_x - 1) / grid_x;
-        const bool serpentine =
-            xh_fused_moe::use_case2_serpentine_schedule(public_case.config);
-        serpentine_cases += serpentine ? 1 : 0;
-        std::vector<int> visits(grid_m * grid_n, 0);
+        std::vector<int> visits(grid_m, 0);
         for (int z = 0; z < grid_z; ++z) {
-            for (int physical_n = 0; physical_n < grid_n; ++physical_n) {
-                for (int x = 0; x < grid_x; ++x) {
-                    const int tile_m = x + z * grid_x;
-                    const int tile_n = serpentine && ((tile_m & 1) != 0)
-                        ? grid_n - 1 - physical_n
-                        : physical_n;
-                    if (tile_m < grid_m) {
-                        ++visits[tile_m * grid_n + tile_n];
-                    }
+            for (int x = 0; x < grid_x; ++x) {
+                const int tile_m = x + z * grid_x;
+                if (tile_m < grid_m) {
+                    ++visits[tile_m];
                 }
             }
         }
@@ -434,71 +424,8 @@ void verify_mma_grid_mapping() {
         }
         std::cout << "REGRESSION maca-mma-grid case=" << public_case.name
                   << " grid_x=" << grid_x << " grid_z=" << grid_z
-                  << " serpentine=" << serpentine << " exact-cover=PASS\n";
+                  << " exact-cover=PASS\n";
     }
-    if (serpentine_cases != 1) {
-        throw std::runtime_error("serpentine schedule must match exactly case 2");
-    }
-}
-
-struct TileCacheMisses {
-    int a;
-    int b;
-};
-
-void touch_lru_tile(int key, bool is_b, int capacity, std::vector<int>* cache,
-                    TileCacheMisses* misses) {
-    const auto found = std::find(cache->begin(), cache->end(), key);
-    if (found == cache->end()) {
-        if (is_b) {
-            ++misses->b;
-        } else {
-            ++misses->a;
-        }
-    } else {
-        cache->erase(found);
-    }
-    cache->push_back(key);
-    if (static_cast<int>(cache->size()) > capacity) {
-        cache->erase(cache->begin());
-    }
-}
-
-TileCacheMisses model_case2_tile_misses(bool serpentine, int capacity) {
-    constexpr int grid_m = 256;
-    constexpr int grid_n = 32;
-    constexpr int b_key_base = grid_m;
-    std::vector<int> cache;
-    TileCacheMisses misses{0, 0};
-    for (int tile_m = 0; tile_m < grid_m; ++tile_m) {
-        const int expert = (tile_m * tile_m + 3 * tile_m) % 16;
-        for (int physical_n = 0; physical_n < grid_n; ++physical_n) {
-            const int tile_n = serpentine && ((tile_m & 1) != 0)
-                ? grid_n - 1 - physical_n
-                : physical_n;
-            touch_lru_tile(tile_m, false, capacity, &cache, &misses);
-            touch_lru_tile(
-                b_key_base + expert * grid_n + tile_n, true, capacity, &cache, &misses);
-        }
-    }
-    return misses;
-}
-
-void verify_case2_serpentine_reuse_model() {
-    constexpr int cache_capacity = 24;
-    constexpr int tile_bytes = 128 * 7168;
-    const TileCacheMisses baseline = model_case2_tile_misses(false, cache_capacity);
-    const TileCacheMisses candidate = model_case2_tile_misses(true, cache_capacity);
-    if (baseline.a != 256 || baseline.b != 8192
-        || candidate.a != 256 || candidate.b != 7488
-        || candidate.a != baseline.a || candidate.b >= baseline.b) {
-        throw std::runtime_error("case-2 serpentine finite-cache model changed");
-    }
-    std::cout << "REGRESSION case2-serpentine-l2 tile-bytes=" << tile_bytes
-              << " lru-capacity=" << cache_capacity
-              << " misses=" << baseline.a + baseline.b
-              << "->" << candidate.a + candidate.b
-              << " full-32N-A-order=PASS\n";
 }
 
 void benchmark_public_case(const PublicCase& public_case) {
@@ -629,7 +556,6 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
-    verify_case2_serpentine_reuse_model();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }

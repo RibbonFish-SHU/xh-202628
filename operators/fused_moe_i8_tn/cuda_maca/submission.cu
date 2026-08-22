@@ -21,10 +21,6 @@ struct KernelConfig {
     int k;
 };
 
-static inline bool use_case2_serpentine_schedule(const KernelConfig& config) {
-    return config.em == 32768 && config.n == 4096 && config.k == 7168;
-}
-
 static inline int mma_grid_x(const KernelConfig& config) {
     constexpr int kNumExperts = 256;
     constexpr int kTileRows = 128;
@@ -155,7 +151,6 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <bool kSerpentineN>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -206,10 +201,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
     const int tid = threadIdx.x;
     const int tile_m = blockIdx.x + blockIdx.z * gridDim.x;
-    const int physical_tile_n = blockIdx.y;
-    const int tile_n = kSerpentineN && ((tile_m & 1) != 0)
-        ? gridDim.y - 1 - physical_tile_n
-        : physical_tile_n;
+    const int tile_n = blockIdx.y;
     const int wave = tid / kMmaWaveSize;
     const int lane = tid % kMmaWaveSize;
     const int row_base = tile_m * kMmaTileM;
@@ -842,33 +834,18 @@ static inline void launch(
         (config.n + kMmaTileN - 1) / kMmaTileN,
         (grid_m + grid_x - 1) / grid_x
     );
-    if (use_case2_serpentine_schedule(config)) {
-        fused_moe_i8_tn_mma_kernel<true><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
-    } else {
-        fused_moe_i8_tn_mma_kernel<false><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
-    }
+    fused_moe_i8_tn_mma_kernel<<<grid, block>>>(
+        a,
+        b_col_major,
+        scale_a,
+        scale_b,
+        moe_weights,
+        expert_ids,
+        out,
+        config.em,
+        config.n,
+        config.k
+    );
 #else
     constexpr int BLOCK_M = 32;
     constexpr int BLOCK_N = 32;

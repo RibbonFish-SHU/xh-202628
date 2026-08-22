@@ -324,6 +324,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T15:28:50+08:00",
       "url": "https://xpuoj.com/contest/12/submissions/122045"
+    },
+    {
+      "commit": "3584f680244849c8b74d188635ba522204396534",
+      "evidence": "artifacts/raw/xpuoj/122083",
+      "experiment": "exp-20260822-022",
+      "id": "122083",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/73/89/83; user-kernel times 1004 us/8.172 ms/544 us/4.133 ms; page summary 14 ms/22.6 G. Serpentine case-2 N scheduling did not beat best. LF source 32,678 bytes, SHA-256 45bf9f165813cdceb16c24f4eac2989e253cc1e2b0413cbb3fe0ed3d7690d7cd; live best remains 82.25, rank 24.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "24",
+      "report_summary": "exp-20260822-022 accepted 4/4 at 82.00 (83/73/89/83; 1004us/8.172ms/544us/4.133ms); serpentine case-2 schedule did not beat 82.25 best; live rank 24; revert to 8c519e6 source.",
+      "reported_at": "2026-08-22T08:43:36+00:00",
+      "reported_to_user": true,
+      "score": "82.00",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T16:13:25+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122083"
     }
   ],
   "version": 1
