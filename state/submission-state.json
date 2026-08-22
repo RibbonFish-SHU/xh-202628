@@ -610,6 +610,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T21:40:43+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122971"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-035-scaleb-preload",
+      "claim_id": "claim-9f10111598a94cb2ace20f42978c8444",
+      "commit": "c2ca7275a7f63605187491debe135008d31c8585",
+      "evidence": "artifacts/raw/xpuoj/122979",
+      "experiment": "exp-20260823-035",
+      "id": "122979",
+      "language": "CUDA Maca",
+      "notes": "Scale-B shared preload compiled and passed 4/4, but regressed to 79/68/85/79 and 77.75 total; exact scored user-kernel times 1.310/10.243/0.731/5.533 ms. Restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "77.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T22:07:56+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122979"
     }
   ],
   "version": 2

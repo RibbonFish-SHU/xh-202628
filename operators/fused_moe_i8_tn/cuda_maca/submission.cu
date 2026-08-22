@@ -133,9 +133,7 @@ constexpr int kMmaRows = kMmaTileM / 16 / kMmaWaveM;
 constexpr int kMmaCols = kMmaTileN / 16 / kMmaWaveN;
 constexpr int kMmaDepth = kMmaTileK / 16;
 constexpr int kMmaOutputVectors = 16;
-constexpr int kMmaSharedScaleBBytes = kMmaTileN * sizeof(float);
-constexpr int kMmaSharedBytes =
-    kMmaSharedABytes + kMmaSharedBBytes + kMmaSharedScaleBBytes;
+constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 
 #define XH_MMA_FENCE() asm(";--------------")
 #define XH_MMA_LDS(dst, src, type_)                                                               \
@@ -215,15 +213,10 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     __shared__ int8_t shared_data[kMmaSharedBytes];
     int8_t* shared_a = shared_data;
     int8_t* shared_b = shared_a + kMmaSharedABytes;
-    float* shared_scale_b =
-        reinterpret_cast<float*>(shared_b + kMmaSharedBBytes);
 
     const int expert = expert_ids_ptr[tile_m];
     const int8_t* expert_b =
         b_ptr + static_cast<uint64_t>(expert) * n * k;
-    const float* scale_b_tile =
-        scale_b_ptr + static_cast<uint64_t>(expert) * n
-        + tile_n * kMmaTileN;
 
     Tensor matrix_b = make_tensor(
         make_gmem_ptr(const_cast<int8_t*>(expert_b)),
@@ -303,17 +296,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     }
     XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a[0], MmaLoad128);
     XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a[1], MmaLoad128);
-    if (tid < kMmaTileN / 4) {
-        MmaLoad128 scale_b_stage = __builtin_mxc_ldg_b128(
-            const_cast<float*>(scale_b_tile + tid * 4),
-            0,
-            -1,
-            true,
-            true,
-            false,
-            false);
-        XH_MMA_STS(shared_scale_b[tid * 4], scale_b_stage, MmaLoad128);
-    }
 
     MmaInt4 accum[kMmaRows][kMmaCols] = {0};
     int32_t a_frag[kMmaRows][kMmaDepth];
@@ -615,10 +597,19 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
 #pragma unroll
     for (uint32_t i = 0; i < 2; ++i) {
-        XH_MMA_LDS(
-            col_scale[i],
-            shared_scale_b[output_col[i]],
-            MmaFloat4);
+        const float* ptr =
+            scale_b_ptr + static_cast<uint64_t>(expert) * n
+            + tile_n * kMmaTileN + output_col[i];
+        col_scale[i] = __builtin_mxc_ldg_b128_predicator(
+            const_cast<float*>(ptr),
+            0,
+            true,
+            true,
+            false,
+            false,
+            output_col_mask[i],
+            1,
+            MACA_ICMP_EQ);
     }
 
     MmaBfloat16* out_base =

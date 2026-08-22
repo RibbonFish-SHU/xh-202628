@@ -428,108 +428,6 @@ void verify_mma_grid_mapping() {
     }
 }
 
-void verify_mma_scale_b_preload() {
-    constexpr int tile_cols = 128;
-    constexpr int threads = 256;
-    constexpr int values_per_vector = 4;
-    constexpr int vector_bytes = values_per_vector * sizeof(float);
-    constexpr int shared_a_begin = 0;
-    constexpr int shared_a_end = 128 * 128;
-    constexpr int shared_b_begin = shared_a_end;
-    constexpr int shared_b_end = shared_b_begin + 128 * 128;
-    constexpr int shared_scale_b_begin = shared_b_end;
-    constexpr int shared_scale_b_end =
-        shared_scale_b_begin + tile_cols * sizeof(float);
-
-    if (shared_a_begin != 0 || shared_a_end != 16384
-        || shared_b_begin != 16384 || shared_b_end != 32768
-        || shared_scale_b_begin != 32768 || shared_scale_b_end != 33280
-        || shared_a_end != shared_b_begin
-        || shared_b_end != shared_scale_b_begin
-        || (shared_a_begin % vector_bytes) != 0
-        || (shared_b_begin % vector_bytes) != 0
-        || (shared_scale_b_begin % vector_bytes) != 0
-        || (shared_scale_b_end % vector_bytes) != 0) {
-        throw std::runtime_error("MMA shared layout is not the exact aligned non-overlap layout");
-    }
-
-    std::vector<int> scale_visits(tile_cols, 0);
-    std::vector<float> global_scale(tile_cols);
-    std::vector<float> shared_scale(tile_cols, -1.0f);
-    int producers = 0;
-    int shared_stores = 0;
-    for (int thread_id = 0; thread_id < threads; ++thread_id) {
-        if (thread_id < tile_cols / values_per_vector) {
-            const int first_col = thread_id * values_per_vector;
-            const int byte_offset = shared_scale_b_begin + first_col * sizeof(float);
-            if ((byte_offset % vector_bytes) != 0) {
-                throw std::runtime_error("MMA scale-B producer address is not b128 aligned");
-            }
-            ++producers;
-            ++shared_stores;
-            for (int value = 0; value < values_per_vector; ++value) {
-                const int col = first_col + value;
-                ++scale_visits[col];
-                global_scale[col] = static_cast<float>(1000 + col);
-                shared_scale[col] = global_scale[col];
-            }
-        }
-    }
-    if (producers != 32 || shared_stores != 32
-        || !std::all_of(
-            scale_visits.begin(), scale_visits.end(), [](int count) { return count == 1; })) {
-        throw std::runtime_error("MMA scale-B producers do not exactly cover columns 0..127");
-    }
-
-    int shared_reads = 0;
-    for (int thread_id = 0; thread_id < threads; ++thread_id) {
-        for (int output_group = 0; output_group < 2; ++output_group) {
-            const int first_col = xh_fused_moe::mma_output_col_local(
-                thread_id, output_group, 0);
-            if (first_col < 0 || first_col + values_per_vector > tile_cols
-                || (first_col % values_per_vector) != 0) {
-                throw std::runtime_error("MMA scale-B epilogue vector is out of range or misaligned");
-            }
-            ++shared_reads;
-            for (int value = 0; value < values_per_vector; ++value) {
-                if (shared_scale[first_col + value] != global_scale[first_col + value]) {
-                    throw std::runtime_error("MMA shared scale-B value differs from global scale-B");
-                }
-            }
-        }
-    }
-
-    constexpr int baseline_global_loads = threads * 2;
-    constexpr int cooperative_global_loads = tile_cols / values_per_vector;
-    constexpr int baseline_global_bytes = baseline_global_loads * vector_bytes;
-    constexpr int cooperative_global_bytes = cooperative_global_loads * vector_bytes;
-    if (shared_reads != 512 || baseline_global_loads != 512
-        || cooperative_global_loads != 32 || baseline_global_bytes != 8192
-        || cooperative_global_bytes != 512) {
-        throw std::runtime_error("MMA scale-B traffic model changed");
-    }
-
-    for (const PublicCase& public_case : kPublicCases) {
-        if ((public_case.config.n % tile_cols) != 0) {
-            throw std::runtime_error(
-                std::string("public N does not tile exactly for ") + public_case.name);
-        }
-        const int n_tiles = public_case.config.n / tile_cols;
-        for (int tile_n = 0; tile_n < n_tiles; ++tile_n) {
-            const int byte_offset = tile_n * tile_cols * sizeof(float);
-            if ((byte_offset % vector_bytes) != 0) {
-                throw std::runtime_error("public scale-B tile base is not b128 aligned");
-            }
-        }
-    }
-
-    std::cout << "REGRESSION maca-scale-b-preload shared-layout=[0,16384),[16384,32768),"
-              << "[32768,33280) producers=32 baseline-global-b128=512"
-              << " baseline-global-bytes=8192 global-b128=32 global-bytes=512"
-              << " shared-stores-b128=32 shared-reads-b128=" << shared_reads
-              << " epilogue-values=exact PASS\n";
-}
-
 void benchmark_public_case(const PublicCase& public_case) {
     const auto& config = public_case.config;
     const size_t a_count = static_cast<size_t>(config.em) * config.k;
@@ -658,7 +556,6 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
-    verify_mma_scale_b_preload();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
