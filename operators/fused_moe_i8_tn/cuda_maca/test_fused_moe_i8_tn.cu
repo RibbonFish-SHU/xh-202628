@@ -552,11 +552,62 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+void verify_mma_row_metadata_vectorization() {
+    constexpr int tile_rows = 128;
+    constexpr int threads = 256;
+    constexpr int row_groups = 2;
+    constexpr int rows_per_vector = 4;
+    constexpr int metadata_arrays = 2;
+    constexpr int baseline_scalar_loads = row_groups * rows_per_vector * metadata_arrays;
+    constexpr int candidate_vector_loads = row_groups * metadata_arrays;
+    static_assert(baseline_scalar_loads == 16, "baseline metadata load count changed");
+    static_assert(candidate_vector_loads == 4, "candidate metadata load count changed");
+
+    for (const PublicCase& public_case : kPublicCases) {
+        if ((public_case.config.em % tile_rows) != 0) {
+            throw std::runtime_error(
+                std::string("row metadata shape is not exact-tile aligned for ")
+                + public_case.name);
+        }
+        for (int row_base = 0; row_base < public_case.config.em; row_base += tile_rows) {
+            for (int thread_id = 0; thread_id < threads; ++thread_id) {
+                for (int row_group = 0; row_group < row_groups; ++row_group) {
+                    const int local_start = xh_fused_moe::mma_output_row_local(
+                        thread_id, row_group, 0);
+                    const int global_start = row_base + local_start;
+                    if ((global_start % rows_per_vector) != 0
+                        || global_start < 0
+                        || global_start + rows_per_vector > public_case.config.em) {
+                        throw std::runtime_error(
+                            std::string("row metadata vector is misaligned or out of bounds for ")
+                            + public_case.name);
+                    }
+                    for (int row_in_group = 0; row_in_group < rows_per_vector;
+                         ++row_in_group) {
+                        const int mapped = row_base + xh_fused_moe::mma_output_row_local(
+                            thread_id, row_group, row_in_group);
+                        if (mapped != global_start + row_in_group) {
+                            throw std::runtime_error(
+                                "row metadata vector does not match scalar output rows");
+                        }
+                    }
+                }
+            }
+        }
+        std::cout << "REGRESSION maca-row-metadata case=" << public_case.name
+                  << " threads=" << threads
+                  << " contiguous-f32x4=PASS aligned-b128=PASS in-bounds=PASS"
+                  << " metadata-bytes=64 loads-per-thread=" << baseline_scalar_loads
+                  << "->" << candidate_vector_loads << "\n";
+    }
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
+    verify_mma_row_metadata_vectorization();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

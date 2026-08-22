@@ -561,38 +561,33 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     output_col_mask[0] = output_col[0] < col_limit;
     output_col_mask[1] = output_col[1] < col_limit;
 
-    float weights[2][4];
-    float row_scale[2][4];
+    MmaFloat4 weights[2];
+    MmaFloat4 row_scale[2];
     MmaFloat4 col_scale[2];
 
 #pragma unroll
     for (uint32_t i = 0; i < 2; ++i) {
-#pragma unroll
-        for (uint32_t j = 0; j < 4; ++j) {
-            const int row = output_row[i * 4 + j];
-            *(reinterpret_cast<MmaInt1*>(&weights[i]) + j) =
-                __builtin_mxc_ldg_b32_predicator(
-                    const_cast<float*>(moe_weights_ptr + row),
-                    0,
-                    true,
-                    true,
-                    false,
-                    false,
-                    row,
-                    em,
-                    MACA_ICMP_SLT);
-            *(reinterpret_cast<MmaInt1*>(&row_scale[i]) + j) =
-                __builtin_mxc_ldg_b32_predicator(
-                    const_cast<float*>(scale_a_ptr + row),
-                    0,
-                    true,
-                    true,
-                    false,
-                    false,
-                    row,
-                    em,
-                    MACA_ICMP_SLT);
-        }
+        const int row = output_row[i * 4];
+        weights[i] = __builtin_mxc_ldg_b128_predicator(
+            const_cast<float*>(moe_weights_ptr + row),
+            0,
+            true,
+            true,
+            false,
+            false,
+            row + 3,
+            em,
+            MACA_ICMP_SLT);
+        row_scale[i] = __builtin_mxc_ldg_b128_predicator(
+            const_cast<float*>(scale_a_ptr + row),
+            0,
+            true,
+            true,
+            false,
+            false,
+            row + 3,
+            em,
+            MACA_ICMP_SLT);
     }
 
 #pragma unroll
