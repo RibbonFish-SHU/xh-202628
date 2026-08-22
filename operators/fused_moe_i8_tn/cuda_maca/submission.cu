@@ -133,7 +133,10 @@ constexpr int kMmaRows = kMmaTileM / 16 / kMmaWaveM;
 constexpr int kMmaCols = kMmaTileN / 16 / kMmaWaveN;
 constexpr int kMmaDepth = kMmaTileK / 16;
 constexpr int kMmaOutputVectors = 16;
-constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
+constexpr int kMmaSharedAOffset = 0;
+constexpr int kMmaSharedB0Offset = kMmaSharedAOffset + kMmaSharedABytes;
+constexpr int kMmaSharedB1Offset = kMmaSharedB0Offset + kMmaSharedBBytes;
+constexpr int kMmaSharedBytes = kMmaSharedB1Offset + kMmaSharedBBytes;
 
 #define XH_MMA_FENCE() asm(";--------------")
 #define XH_MMA_LDS(dst, src, type_)                                                               \
@@ -192,7 +195,10 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #define XH_LDS_A_B128(rowi, coli)                                                                 \
     XH_MMA_LDS(a_frag[rowi][coli * 4], shared_a_tensor(lds_row_a[rowi], lds_col[coli]), MmaLoad128)
 #define XH_LDS_B_B128(rowi, coli)                                                                 \
-    XH_MMA_LDS(b_frag[rowi][coli * 4], shared_b_tensor(lds_row_b[rowi], lds_col[coli]), MmaLoad128)
+    XH_MMA_LDS(                                                                                    \
+        b_frag[rowi][coli * 4],                                                                   \
+        shared_b_active_tensor(lds_row_b[rowi], lds_col[coli]),                                   \
+        MmaLoad128)
 
 #define XH_CVT_F32_TO_BF16(dst, src0, src1)                                                       \
     src0 = ((src0 >> 16) & 1) + src0 + 0x7fff;                                                   \
@@ -211,8 +217,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     }
 
     __shared__ int8_t shared_data[kMmaSharedBytes];
-    int8_t* shared_a = shared_data;
-    int8_t* shared_b = shared_a + kMmaSharedABytes;
+    int8_t* shared_a = shared_data + kMmaSharedAOffset;
+    int8_t* shared_b_active = shared_data + kMmaSharedB0Offset;
+    int8_t* shared_b_inactive = shared_data + kMmaSharedB1Offset;
 
     const int expert = expert_ids_ptr[tile_m];
     const int8_t* expert_b =
@@ -277,8 +284,12 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         make_smem_ptr(shared_a),
         make_shape(Int<kMmaTileM>{}, Int<kMmaTileK>{}),
         make_stride(Int<kMmaTileK>{}, Int<1>{}));
-    Tensor shared_b_tensor = make_tensor(
-        make_smem_ptr(shared_b),
+    Tensor shared_b_active_tensor = make_tensor(
+        make_smem_ptr(shared_b_active),
+        make_shape(Int<kMmaTileN>{}, Int<kMmaTileK>{}),
+        make_stride(Int<kMmaTileK>{}, Int<1>{}));
+    Tensor shared_b_inactive_tensor = make_tensor(
+        make_smem_ptr(shared_b_inactive),
         make_shape(Int<kMmaTileN>{}, Int<kMmaTileK>{}),
         make_stride(Int<kMmaTileK>{}, Int<1>{}));
 
@@ -288,7 +299,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsB; ++i) {
         store_row_b[i] = tid / 8 + kMmaRowsPerLoad * i;
-        XH_MMA_STS(shared_b_tensor(store_row_b[i], store_col), load_b[i], MmaLoad128);
+        XH_MMA_STS(shared_b_active_tensor(store_row_b[i], store_col), load_b[i], MmaLoad128);
     }
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
@@ -386,7 +397,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         a_base += kMmaTileK;
         XH_MMA_STAGE_MNKX2(0, 7, 6);
 
-        __syncthreadshared();
         XH_MMA_STAGE_MNKX2(1, 0, 0);
         XH_LDS_A_B128(1, 1);
         XH_MMA_STAGE_MNKX2(1, 0, 2);
@@ -398,20 +408,20 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(1, 3, 2);
 
         XH_MMA_STAGE_MNKX2(1, 4, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b[0], MmaLoad128);
+        XH_MMA_STS(shared_b_inactive_tensor(store_row_b[0], store_col), load_b[0], MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 4, 2);
         XH_MMA_STAGE_MNKX2(1, 5, 0);
         XH_MMA_STAGE_MNKX2(1, 5, 2);
-        XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b[1], MmaLoad128);
+        XH_MMA_STS(shared_b_inactive_tensor(store_row_b[1], store_col), load_b[1], MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 6, 0);
         XH_MMA_STAGE_MNKX2(1, 6, 2);
         XH_MMA_STAGE_MNKX2(1, 7, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b[2], MmaLoad128);
+        XH_MMA_STS(shared_b_inactive_tensor(store_row_b[2], store_col), load_b[2], MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 7, 2);
 
         XH_MMA_STAGE_MNKX2(1, 0, 4);
         XH_MMA_STAGE_MNKX2(1, 0, 6);
-        XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b[3], MmaLoad128);
+        XH_MMA_STS(shared_b_inactive_tensor(store_row_b[3], store_col), load_b[3], MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 1, 4);
         XH_MMA_STAGE_MNKX2(1, 1, 6);
         XH_MMA_STAGE_MNKX2(1, 2, 4);
@@ -425,6 +435,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(1, 4, 6);
         XH_MMA_STAGE_MNKX2(1, 5, 4);
         __syncthreadshared();
+        Tensor shared_b_swap_tensor = shared_b_active_tensor;
+        shared_b_active_tensor = shared_b_inactive_tensor;
+        shared_b_inactive_tensor = shared_b_swap_tensor;
         XH_MMA_STAGE_MNKX2(1, 5, 6);
         XH_LDS_A_B128(0, 0);
         XH_LDS_B_B128(0, 0);
