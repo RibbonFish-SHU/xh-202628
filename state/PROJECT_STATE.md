@@ -35,6 +35,7 @@
 | Fused MoE Triton warps=4 候选 | target-no-gain | `exp-20260819-017` / `677f957` 单旋钮 num_warps 8→4；OJ `#117948` Accepted 69.5（71、57、80、70；2056 us、17 ms、1069 us、9 ms），与 warps=8 基线持平；stages 与 warps 两个流水旋钮均无效，Triton case 2 钉在约 0.47 TB/s / 113 TOPS，指向 tl.dot int8 下沉开销上限 |
 | Fused MoE Triton BLOCK_K=32 诊断 | target-rejected | `exp-20260819-018` / `89fc315` 单旋钮 BLOCK_K 64→32；OJ `#117984` Accepted 58（59、43、71、59；3510 us、29 ms、1736 us、15 ms），case 2 随 dot 调用数翻倍从 17 ms 增至 29 ms，确认 tl.dot int8 下沉计算封顶，Triton 线关闭；Triton 文件已回退到 69.5 基线配置 |
 | Fused MoE paired 64x128 候选 | target-regressed | `exp-20260819-019` / `fb2d10b19ceb` 仅把 case 2 拆为成对 64x128x128 CTA，LDS 从 32 KiB 降到 24 KiB 并减半累加器；OJ `#121831` 4/4 Accepted，但仅 79.75 分（83、64、89、83；1015 us、12 ms、549 us、4146 us），case 2 相对最佳慢约 47%，占用率假设被否决；活动源码已精确恢复为 `8c519e6` 最佳核心 |
+| Fused MoE paired-N 128x256 候选 | proxy-passed / target-pending | `exp-20260822-020` / `0639295edcea` 只为 case 2 把两个已验证的 128x128 流水放进一个 512 线程 CTA；A 使用双 16 KiB buffer 在既有 barrier 后交换，两个 subgroup 各有 16 KiB B，共 64 KiB LDS。proxy/NVIDIA source/build/correctness/benchmark/regression 全部通过；原始 128x128 内核 hash 精确保持，MXMACA 编译、寄存器可行性、正确性和收益待一次 OJ 验证 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 16 | `#116962` CE/0 分；`#116973` Accepted/11 分；`#117017` CE/0 分；`#117034` Accepted/81.5 分；`#117056` Accepted/81.75 分/排名 23；`#117079` Accepted/79.25 分；`#117114` Accepted/82.25 分/提交时排名 20；`#117118` Accepted/82.00 分；`#117384` Accepted/81.75 分（用户手动提交）；`#117643` Accepted/81.75 分；`#117721` WA/0 分；`#117737` Triton/Accepted/69.5 分；`#117753` Triton/Accepted/68.75 分；`#117948` Triton/Accepted/69.5 分；`#117984` Triton/Accepted/58 分；`#121831` CUDA Maca/Accepted/79.75 分；均已报告，当前最佳 82.25、实时排名 24 |
 | 待向用户报告的提交 | none | 账本门禁清空 |
@@ -84,7 +85,7 @@
 
 ## 当前技术阶段与下一步
 
-1. 当前榜单最佳基线和活动提交源码均为 `8c519e6c1bb57e7b124b60806db9575fa1267207` / `exp-20260819-010`；OJ `#117114` 已验证其 MXMACA 编译、A-first allocation-range shape 推断、无谓词 A load 和 4/4 wave-MMA 正确性，C500 得分 82.25。2026-08-22 实时榜排名 24、榜首 87。`#117118`（82.00）、`#117384`（81.75）、`#117643`（81.75）及 `#121831`（79.75）均未超过最佳，不得称为新最佳。`b6e4272e9d8f` 仅保留为标量兼容回退。
+1. 当前榜单最佳基线仍为 `8c519e6c1bb57e7b124b60806db9575fa1267207` / `exp-20260819-010`；OJ `#117114` 已验证其 MXMACA 编译、A-first allocation-range shape 推断、无谓词 A load 和 4/4 wave-MMA 正确性，C500 得分 82.25。2026-08-22 实时榜排名 24、榜首 87。当前活动候选源码为 `exp-20260822-020` / `0639295edcea`，仅 case 2 改走 paired-N 512 线程路径，尚未取得目标成绩，不得称为新最佳。`b6e4272e9d8f` 仅保留为标量兼容回退。
 2. `exp-20260818-003` / `3b7f02efb795` 的 `__dp4a` 优化已被 OJ `#116962` 目标编译结果否决；不得再次提交该 intrinsic。
 3. `#116973` 四组 C500 用户核时间为 41.947、333.856、21.359、170.268 ms，仅为官方 baseline 的 0.122x、0.068x、0.209x、0.127x；标量字节展开是主瓶颈。
 4. `exp-20260819-005` / `067e38fdd6f3` 已按上述设计实现：MACA 分支的 128 次 MMA 调用及 A/B LDS/LDG 序列与官方 standalone kernel 逐项一致，A/scale_a 改为直接 routed-row 索引；NVIDIA 分支保持标量基线。
@@ -100,6 +101,7 @@
 14. **方向决策更新（2026-08-19 晚，用户明确指示）**：用户否决了第 13 点曾有过的"转入作品材料"想法，明确当前目标为持续刷榜，要求按标准工作流（单假设 → commit → 远端 proxy → 一次 OJ 提交 → record/report → 下一假设）循环推进。榜单最佳冻结事实不变：`8c519e6c1bb5` / `#117114` 82.25 分、排名 20；活动源码为 `228a296`（exp-013 状态）。15. `exp-20260819-015` / `27c93a4` 开辟第二条技术路线：Triton routed-dot 内核（官方 starter 语义，128x128x64、num_warps=8、num_stages=3、bf16 store，保留 gather 回退）。远端无 Triton 环境，仅做 py_compile 静态检查后直连 OJ。`#117737` 以 4/4 Accepted 验证 Triton 3.0.0-on-MACA 编译与正确性：四点 72、56、80、70，用户核时间 1982 us、17 ms、1047 us、9 ms，总分 69.5，榜单最佳仍为 82.25、排名 20。case 2 约 0.47 TB/s，说明开箱配置离 CUDA Maca 手工核心（1.0 TB/s）差约 2.1x；Triton 路线的价值取决于调参空间（num_stages、BLOCK_K、num_warps、L2 swizzle）。
 16. 已否决方向汇总：`__dp4a`、128x256 G2S、case-2 常量特化（无显示分收益）、剩余谓词移除、MLP 负载提升、bsm 异步 G2S 双缓冲（WA）、Triton stages/warps/BLOCK_K 调参，以及 paired 64x128 CTA。`#121831` 证明把 case 2 的 M tile 减半会把 B 读取和 CTA 数翻倍，12 ms 明显突破原核心约 8.1 ms 的带宽下限；不得再沿 M 拆分方向扫描。
 17. 下一轮只能从 82.25 分的 128x128 核心出发，优先寻找不增加 A/B 字节数的结构性改动。候选必须先从官方 MXMACA 材料或已验证指令语义中建立地址、同步和流量证明，再分配新实验 ID；不得恢复 `__dp4a`、128x256、64x128、非零 `arrive` 或已关闭的 Triton 调参线。
+18. `exp-20260822-020` / `0639295edcea` 从最佳 128x128 核心出发，仅将 case 2 的相邻两个 N tile 融合到一个 512 线程 CTA。原交接建议的 48 KiB 单 A buffer 存在跨 subgroup 的半 tile STS→LDS 竞态，已在提交前否决；实际候选使用 active/stage 双 A buffer，并只在原有 stage-complete barrier 后交换，两个 subgroup 的 B buffer 仍隔离，总 LDS 64 KiB。官方 raw-array 示例证明 512 线程与 64 KiB 静态 shared 可启动。物理 GPU 1 上已提交快照通过 source hash、build、三组差分正确性、四组 benchmark、精确输出/网格/load/swizzle/shared-layout 和只读回归；proxy median 为 44.836、341.317、21.527、171.753 ms。NVIDIA 不执行 MXMACA 分支，下一门禁是一次 gated OJ 提交。
 
 ## NVIDIA 执行链路验证
 
@@ -117,6 +119,7 @@
 - `exp-20260819-011` / `48cf11b848ef`：只为 prefill gate-up 增加同一 MACA 128x128 内核的编译期 shape 实例，其他 shape、MMA 流水、共享内存、网格、尾声、shape inference 与 NVIDIA fallback 均不变。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过；回归确认四个公开 shape 中只有 prefill gate-up 命中特化。proxy/NVIDIA 四组 core median 为 42.719、338.761、21.530、171.751 ms。OJ `#117118` 以 4/4 Accepted 验证目标模板，case 2 为 73 分 / 8.058 ms，较 `#117114` 快 0.100 ms 但显示分未变；总分 82.00，决定保留为边际 case-2 底座而非最佳分数版本。
 - `exp-20260819-012` / `d680180dbaed`：移除 MACA 128x128 路径剩余的精确 tile load 谓词、B 行夹取、K 尾部和输出行列条件计算，store intrinsic 保持官方 b64 predicator 但条件常量化；目标指令流水和 NVIDIA fallback 不变。物理 GPU 1 上 source check、build、完整 correctness/benchmark/regression 通过，新增回归逐线程验证每个 B/epilogue 向量地址。proxy/NVIDIA 四组 core median 为 45.537、338.885、21.530、171.750 ms；目标分支未在 NVIDIA 上执行，决定为 `investigate`，留待下一轮一次 OJ 验证。
 - `exp-20260819-019` / `fb2d10b19ceb`：只为 case 2 增加 paired 64x128x128 CTA；物理 GPU 1 上已提交快照通过 source/build/correctness/benchmark/regression，proxy/NVIDIA 四组 median 为 45.537、338.692、21.528、171.805 ms。OJ `#121831` 在 xcore1000 上编译并 4/4 Accepted，但 case 2 为 64 分 / 12 ms，较最佳 73 分 / 8.158 ms 慢约 47%；决定 `revert`，活动源码已精确恢复 `8c519e6` blob `58c7b241...`。
+- `exp-20260822-020` / `0639295edcea`：仅对 case 2 增加 512 线程 paired-N 路径，两个 256 线程 subgroup 保留基线 MMA/B pipeline，以双 A buffer 在既有 barrier 后安全共享 A，并使用两个独立 B buffer；总 LDS 64 KiB。物理 GPU 1 上 committed snapshot 的 baseline hash、source proof、build、完整 correctness/benchmark/regression 全部通过；proxy/NVIDIA 四组 median 为 44.836、341.317、21.527、171.753 ms，结构回归证明相邻两 tile 的 b128 load 数从 4096 降到 3072。目标分支未在 NVIDIA 执行，决定 `investigate`，等待 OJ。
 - 上述原始结果均位于本地忽略目录 `artifacts/raw/remote-runs/`，远端唯一 run 目录继续保留。
 
 所有 NVIDIA 性能数据只属于 proxy/NVIDIA，不证明 C500 性能或 OJ 得分。OJ `#116962` 已确认 MXMACA `xcore1000` 不声明 `__dp4a`；OJ `#117034` 和 `#117056` 已确认当前 MMA 后端及 `grid_x=1` 调度能在目标编译并 4/4 正确；OJ `#117079`、`#117721`、`#117984` 与 `#121831` 分别否决 128x256、非零-arrive BSM、Triton BLOCK_K 和 paired 64x128 路线；OJ `#117114` 仍是 82.25 分最佳。
