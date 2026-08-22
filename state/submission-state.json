@@ -288,6 +288,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T13:02:53+08:00",
       "url": "https://xpuoj.com/contest/12/submissions/121831"
+    },
+    {
+      "commit": "0639295edcea31a482cfbb018d01aa0e80b9a505",
+      "evidence": "artifacts/raw/xpuoj/121947",
+      "experiment": "exp-20260822-020",
+      "id": "121947",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/70/88/83; user-kernel times 1016 us/9 ms/551 us/4151 us; paired-N 512-thread case-2 path regressed from best 73 points / 8.158 ms; LF source 56,447 bytes, SHA-256 b8eb8233c2f5cf6e8159db73ab6fa50f7ca49c5998653017afea322c1351fd4a; best remains 82.25 and live rank 24.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "24",
+      "report_summary": "exp-20260822-020 accepted 4/4 at 81.00 (83/70/88/83; 1016us/9ms/551us/4151us); paired-N 512-thread case-2 path lost 3 points versus best; hypothesis rejected; best remains 82.25, live rank 24; restore 8c519e6 source.",
+      "reported_at": "2026-08-22T06:13:42+00:00",
+      "reported_to_user": true,
+      "score": "81",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T14:02:17+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/121947"
     }
   ],
   "version": 1
