@@ -428,6 +428,74 @@ void verify_mma_grid_mapping() {
     }
 }
 
+void verify_mma_chain_interleave_model() {
+    struct InterleavedPair {
+        int m;
+        int n0;
+        int k0;
+        int n1;
+        int k1;
+    };
+    constexpr InterleavedPair pairs[] = {
+        {0, 2, 2, 3, 0},
+        {0, 6, 2, 7, 0},
+        {0, 1, 6, 2, 4},
+        {0, 5, 6, 6, 4},
+        {0, 6, 6, 7, 4},
+        {1, 0, 2, 1, 0},
+        {1, 1, 2, 2, 0},
+        {1, 2, 2, 3, 0},
+        {1, 4, 2, 5, 0},
+        {1, 6, 2, 7, 0},
+        {1, 1, 6, 2, 4},
+        {1, 2, 6, 3, 4},
+        {1, 4, 6, 5, 4},
+    };
+
+    int baseline_counts[2][8][8] = {};
+    int candidate_counts[2][8][8] = {};
+    int last_candidate_depth[2][8];
+    for (int m = 0; m < 2; ++m) {
+        std::fill(last_candidate_depth[m], last_candidate_depth[m] + 8, -1);
+    }
+    for (const InterleavedPair& pair : pairs) {
+        if (pair.m < 0 || pair.m >= 2 || pair.n0 < 0 || pair.n0 >= 8
+            || pair.n1 < 0 || pair.n1 >= 8 || pair.n0 == pair.n1
+            || pair.k0 < 0 || pair.k0 + 1 >= 8
+            || pair.k1 < 0 || pair.k1 + 1 >= 8) {
+            throw std::runtime_error("MMA interleave pair is not two independent valid chains");
+        }
+
+        const int baseline_n[] = {pair.n0, pair.n0, pair.n1, pair.n1};
+        const int baseline_k[] = {pair.k0, pair.k0 + 1, pair.k1, pair.k1 + 1};
+        const int candidate_n[] = {pair.n0, pair.n1, pair.n0, pair.n1};
+        const int candidate_k[] = {pair.k0, pair.k1, pair.k0 + 1, pair.k1 + 1};
+        for (int i = 0; i < 4; ++i) {
+            ++baseline_counts[pair.m][baseline_n[i]][baseline_k[i]];
+            ++candidate_counts[pair.m][candidate_n[i]][candidate_k[i]];
+            int& last_depth = last_candidate_depth[pair.m][candidate_n[i]];
+            if (candidate_k[i] <= last_depth) {
+                throw std::runtime_error("MMA interleave reverses one accumulator chain");
+            }
+            last_depth = candidate_k[i];
+        }
+    }
+
+    for (int m = 0; m < 2; ++m) {
+        for (int n = 0; n < 8; ++n) {
+            if (!std::equal(
+                    baseline_counts[m][n], baseline_counts[m][n] + 8,
+                    candidate_counts[m][n])) {
+                throw std::runtime_error("MMA interleave changes the selected instruction multiset");
+            }
+        }
+    }
+    std::cout << "REGRESSION maca-mma-chain-interleave pairs="
+              << sizeof(pairs) / sizeof(pairs[0])
+              << " instructions=" << 4 * sizeof(pairs) / sizeof(pairs[0])
+              << " independent-order=PASS\n";
+}
+
 void benchmark_public_case(const PublicCase& public_case) {
     const auto& config = public_case.config;
     const size_t a_count = static_cast<size_t>(config.em) * config.k;
@@ -556,6 +624,7 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_mma_chain_interleave_model();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
