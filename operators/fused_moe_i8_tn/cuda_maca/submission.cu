@@ -32,10 +32,6 @@ static inline int mma_grid_x(const KernelConfig& config) {
     return grid_m < group_tiles ? grid_m : group_tiles;
 }
 
-static inline bool use_case2_cooperative_epilogue(const KernelConfig& config) {
-    return config.em == 32768 && config.n == 4096 && config.k == 7168;
-}
-
 static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs) {
     return lhs.em == rhs.em && lhs.n == rhs.n && lhs.k == rhs.k;
 }
@@ -138,9 +134,6 @@ constexpr int kMmaCols = kMmaTileN / 16 / kMmaWaveN;
 constexpr int kMmaDepth = kMmaTileK / 16;
 constexpr int kMmaOutputVectors = 16;
 constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
-constexpr int kMmaEpilogueScaleBytes =
-    (kMmaTileM + kMmaTileN) * sizeof(float);
-static_assert(kMmaEpilogueScaleBytes <= kMmaSharedBytes, "epilogue scale cache must reuse LDS");
 
 #define XH_MMA_FENCE() asm(";--------------")
 #define XH_MMA_LDS(dst, src, type_)                                                               \
@@ -158,7 +151,6 @@ static_assert(kMmaEpilogueScaleBytes <= kMmaSharedBytes, "epilogue scale cache m
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <bool kCooperativeEpilogue>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -573,103 +565,51 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     float row_scale[2][4];
     MmaFloat4 col_scale[2];
 
-    if (kCooperativeEpilogue) {
-        __syncthreadshared();
-        float* shared_row_scale = reinterpret_cast<float*>(shared_data);
-        float* shared_col_scale = shared_row_scale + kMmaTileM;
-        if (tid < kMmaTileM) {
-            const int row = row_base + tid;
-            const int col = tile_n * kMmaTileN + tid;
-            float row_weight;
-            float row_scale_value;
-            float col_scale_value;
-            *reinterpret_cast<MmaInt1*>(&row_weight) = __builtin_mxc_ldg_b32(
-                const_cast<float*>(moe_weights_ptr + row),
-                0,
-                -1,
-                true,
-                true,
-                false,
-                false);
-            *reinterpret_cast<MmaInt1*>(&row_scale_value) = __builtin_mxc_ldg_b32(
-                const_cast<float*>(scale_a_ptr + row),
-                0,
-                -1,
-                true,
-                true,
-                false,
-                false);
-            *reinterpret_cast<MmaInt1*>(&col_scale_value) = __builtin_mxc_ldg_b32(
-                const_cast<float*>(
-                    scale_b_ptr + static_cast<uint64_t>(expert) * n + col),
-                0,
-                -1,
-                true,
-                true,
-                false,
-                false);
-            float combined_row_scale = row_scale_value * row_weight;
-            XH_MMA_STS(shared_row_scale[tid], combined_row_scale, float);
-            XH_MMA_STS(shared_col_scale[tid], col_scale_value, float);
-        }
-        __syncthreadshared();
-        XH_MMA_LDS(
-            row_scale[0][0],
-            shared_row_scale[output_row[0] - row_base],
-            MmaFloat4);
-        XH_MMA_LDS(
-            row_scale[1][0],
-            shared_row_scale[output_row[4] - row_base],
-            MmaFloat4);
-        XH_MMA_LDS(col_scale[0], shared_col_scale[output_col[0]], MmaFloat4);
-        XH_MMA_LDS(col_scale[1], shared_col_scale[output_col[1]], MmaFloat4);
-    } else {
 #pragma unroll
-        for (uint32_t i = 0; i < 2; ++i) {
+    for (uint32_t i = 0; i < 2; ++i) {
 #pragma unroll
-            for (uint32_t j = 0; j < 4; ++j) {
-                const int row = output_row[i * 4 + j];
-                *(reinterpret_cast<MmaInt1*>(&weights[i]) + j) =
-                    __builtin_mxc_ldg_b32_predicator(
-                        const_cast<float*>(moe_weights_ptr + row),
-                        0,
-                        true,
-                        true,
-                        false,
-                        false,
-                        row,
-                        em,
-                        MACA_ICMP_SLT);
-                *(reinterpret_cast<MmaInt1*>(&row_scale[i]) + j) =
-                    __builtin_mxc_ldg_b32_predicator(
-                        const_cast<float*>(scale_a_ptr + row),
-                        0,
-                        true,
-                        true,
-                        false,
-                        false,
-                        row,
-                        em,
-                        MACA_ICMP_SLT);
-            }
+        for (uint32_t j = 0; j < 4; ++j) {
+            const int row = output_row[i * 4 + j];
+            *(reinterpret_cast<MmaInt1*>(&weights[i]) + j) =
+                __builtin_mxc_ldg_b32_predicator(
+                    const_cast<float*>(moe_weights_ptr + row),
+                    0,
+                    true,
+                    true,
+                    false,
+                    false,
+                    row,
+                    em,
+                    MACA_ICMP_SLT);
+            *(reinterpret_cast<MmaInt1*>(&row_scale[i]) + j) =
+                __builtin_mxc_ldg_b32_predicator(
+                    const_cast<float*>(scale_a_ptr + row),
+                    0,
+                    true,
+                    true,
+                    false,
+                    false,
+                    row,
+                    em,
+                    MACA_ICMP_SLT);
         }
+    }
 
 #pragma unroll
-        for (uint32_t i = 0; i < 2; ++i) {
-            const float* ptr =
-                scale_b_ptr + static_cast<uint64_t>(expert) * n
-                + tile_n * kMmaTileN + output_col[i];
-            col_scale[i] = __builtin_mxc_ldg_b128_predicator(
-                const_cast<float*>(ptr),
-                0,
-                true,
-                true,
-                false,
-                false,
-                output_col_mask[i],
-                1,
-                MACA_ICMP_EQ);
-        }
+    for (uint32_t i = 0; i < 2; ++i) {
+        const float* ptr =
+            scale_b_ptr + static_cast<uint64_t>(expert) * n
+            + tile_n * kMmaTileN + output_col[i];
+        col_scale[i] = __builtin_mxc_ldg_b128_predicator(
+            const_cast<float*>(ptr),
+            0,
+            true,
+            true,
+            false,
+            false,
+            output_col_mask[i],
+            1,
+            MACA_ICMP_EQ);
     }
 
     MmaBfloat16* out_base =
@@ -691,9 +631,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
             values[6] = output[i * 8 + 2 * j + 1][2];
             values[7] = output[i * 8 + 2 * j + 1][3];
 
-            if (!kCooperativeEpilogue) {
-                row_scale[i][j] *= weights[i][j];
-            }
+            row_scale[i][j] *= weights[i][j];
             MmaFloat2 row_scale2 = {row_scale[i][j], row_scale[i][j]};
             MmaFloat2 scales[4];
             scales[0] = __builtin_mxc_pk_fma_f32(
@@ -896,33 +834,18 @@ static inline void launch(
         (config.n + kMmaTileN - 1) / kMmaTileN,
         (grid_m + grid_x - 1) / grid_x
     );
-    if (use_case2_cooperative_epilogue(config)) {
-        fused_moe_i8_tn_mma_kernel<true><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
-    } else {
-        fused_moe_i8_tn_mma_kernel<false><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
-    }
+    fused_moe_i8_tn_mma_kernel<<<grid, block>>>(
+        a,
+        b_col_major,
+        scale_a,
+        scale_b,
+        moe_weights,
+        expert_ids,
+        out,
+        config.em,
+        config.n,
+        config.k
+    );
 #else
     constexpr int BLOCK_M = 32;
     constexpr int BLOCK_N = 32;

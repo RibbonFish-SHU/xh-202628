@@ -342,6 +342,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T16:13:25+08:00",
       "url": "https://xpuoj.com/contest/12/submissions/122083"
+    },
+    {
+      "commit": "7f2b2add3cd623623a6986012052abf5d64ac297",
+      "evidence": "artifacts/raw/xpuoj/122125",
+      "experiment": "exp-20260822-023",
+      "id": "122125",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/73/89/83; exact user-kernel times 1009 us/8153 us/546 us/4131 us; cooperative case-2 epilogue-scale LDS cache compiled for xcore1000 but did not cross the 74-point threshold; LF source 34,934 bytes, SHA-256 7d938dcec680ae1471ec33428c5510c750e88bdaf9c3e3f0df510065a4682cb0; best remains 82.25, live rank 24.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "24",
+      "report_summary": "exp-20260822-023 accepted 4/4 at 82.00 (83/73/89/83; 1009us/8153us/546us/4131us); cooperative case-2 epilogue-scale LDS cache did not beat the 82.25 best; live rank 24; restore 8c519e6 source.",
+      "reported_at": "2026-08-22T09:36:03+00:00",
+      "reported_to_user": true,
+      "score": "82.00",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T17:15:11+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122125"
     }
   ],
   "version": 1
