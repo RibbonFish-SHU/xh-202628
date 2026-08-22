@@ -85,100 +85,6 @@ float bf16_to_float(uint16_t value) {
     return result;
 }
 
-uint16_t float_bits_to_bf16_rne(uint32_t bits) {
-    return static_cast<uint16_t>(
-        (bits + 0x7fffU + ((bits >> 16) & 1U)) >> 16);
-}
-
-uint16_t float_bits_to_bf16_ties_away(uint32_t bits) {
-    return static_cast<uint16_t>((bits + 0x8000U) >> 16);
-}
-
-void verify_bf16_ties_away_tolerance() {
-    constexpr uint32_t kLowWords[] = {
-        0x0000U, 0x0001U, 0x7fffU, 0x8000U, 0x8001U, 0xffffU,
-    };
-    constexpr float kRtol = 2.0e-2f;
-    constexpr float kAtol = 5.0e-3f;
-    constexpr int kMacroCallsPerThread = 2 * 4 * 4;
-    constexpr int kRemovedOpsPerMacro = 6;
-
-    size_t checked = 0;
-    size_t finite_checked = 0;
-    size_t nonfinite_checked = 0;
-    size_t changed_ties = 0;
-    float max_relative_error = 0.0f;
-
-    for (uint32_t high = 0; high <= 0xffffU; ++high) {
-        for (uint32_t low : kLowWords) {
-            const uint32_t bits = (high << 16) | low;
-            const uint16_t rne_bits = float_bits_to_bf16_rne(bits);
-            const uint16_t ties_away_bits = float_bits_to_bf16_ties_away(bits);
-            const float reference = bf16_to_float(rne_bits);
-            const float candidate = bf16_to_float(ties_away_bits);
-            ++checked;
-
-            if (rne_bits != ties_away_bits) {
-                if (low != 0x8000U || (high & 1U) != 0U
-                    || ties_away_bits != static_cast<uint16_t>(rne_bits + 1U)) {
-                    throw std::runtime_error(
-                        "BF16 ties-away differs from RNE outside an even retained tie");
-                }
-                ++changed_ties;
-            }
-
-            if (std::isfinite(reference)) {
-                if (!std::isfinite(candidate)) {
-                    throw std::runtime_error(
-                        "BF16 ties-away creates a nonfinite value from a finite RNE result");
-                }
-                const float absolute_error = std::fabs(candidate - reference);
-                const float tolerance = kAtol + kRtol * std::fabs(reference);
-                if (absolute_error > tolerance) {
-                    throw std::runtime_error(
-                        "BF16 ties-away violates the official finite-value tolerance");
-                }
-                if (std::fabs(reference) >= kAtol) {
-                    max_relative_error = std::max(
-                        max_relative_error, absolute_error / std::fabs(reference));
-                }
-                ++finite_checked;
-            } else {
-                const bool input_is_nan =
-                    (bits & 0x7fffffffU) > 0x7f800000U;
-                if (!input_is_nan && std::isinf(reference)
-                    && (!std::isinf(candidate)
-                        || std::signbit(reference) != std::signbit(candidate))) {
-                    throw std::runtime_error(
-                        "BF16 ties-away changes infinity or max-finite overflow behavior");
-                }
-                if ((ties_away_bits & 0x7f80U) != 0x7f80U) {
-                    throw std::runtime_error(
-                        "BF16 ties-away maps a nonfinite boundary to a finite exponent");
-                }
-                ++nonfinite_checked;
-            }
-        }
-    }
-
-    if (checked != 65536ULL * (sizeof(kLowWords) / sizeof(kLowWords[0]))
-        || changed_ties != 32768U
-        || kMacroCallsPerThread != 32
-        || kMacroCallsPerThread * kRemovedOpsPerMacro != 192) {
-        throw std::runtime_error("BF16 ties-away coverage or instruction model changed");
-    }
-
-    std::cout << "REGRESSION maca-bf16-ties-away boundary-pairs=" << checked
-              << " finite=" << finite_checked
-              << " nonfinite=" << nonfinite_checked
-              << " changed-ties=" << changed_ties
-              << " max-relative-error=" << std::scientific << max_relative_error
-              << " macro-calls-per-thread=" << kMacroCallsPerThread
-              << " alu-ops-removed-per-thread="
-              << kMacroCallsPerThread * kRemovedOpsPerMacro
-              << " PASS\n";
-}
-
 struct SmallCase {
     xh_fused_moe::KernelConfig config;
     int experts;
@@ -647,7 +553,6 @@ void verify_mma_a_load_bounds() {
 }
 
 void run_regression() {
-    verify_bf16_ties_away_tolerance();
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();

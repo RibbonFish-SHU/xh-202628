@@ -510,6 +510,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T18:19:36+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122877"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-030-bf16-ties-away",
+      "claim_id": "claim-477f7019f01748bb861ba8a2b7da6527",
+      "commit": "ea37ed399b5d5ac38aaac8f7e11b40d58b0c3cea",
+      "evidence": "artifacts/raw/xpuoj/122909",
+      "experiment": "exp-20260823-030",
+      "id": "122909",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4 at 82.25 with cases 83/73/89/84 and displayed times 1020 us/8 ms/542 us/4121 us; tied formal best #117114 without a score gain, so reject ties-away simplification and restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "82.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T19:18:15+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122909"
     }
   ],
   "version": 2
