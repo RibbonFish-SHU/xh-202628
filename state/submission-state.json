@@ -1,5 +1,5 @@
 {
-  "pending_report": null,
+  "pending_report": "122822",
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -450,7 +450,27 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T22:42:37+08:00",
       "url": "https://xpuoj.com/contest/12/submissions/122553"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-027-rowmeta-b128",
+      "claim_id": "claim-95f35cd7f2e649a6a0bcfdef3d2fa930",
+      "commit": "be2a1c8b3c227469ace72329203f079fee0f50ea",
+      "evidence": "artifacts/raw/xpuoj/122822",
+      "experiment": "exp-20260823-027",
+      "id": "122822",
+      "language": "CUDA Maca",
+      "notes": "C500 accepted but scored 82.00, 0.25 below formal best 82.25; reject row-metadata b128 vectorization and restore formal-best source before the next candidate.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "82",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T17:19:03+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122822"
     }
   ],
-  "version": 1
+  "version": 2
 }
