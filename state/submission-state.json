@@ -570,6 +570,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T20:04:33+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122928"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-033-b-pingpong",
+      "claim_id": "claim-c061bfcc069c418a9e0948bd5990f8da",
+      "commit": "7474888563dcee41391730b7182844325ca17b31",
+      "evidence": "artifacts/raw/xpuoj/122954",
+      "experiment": "exp-20260823-033",
+      "id": "122954",
+      "language": "CUDA Maca",
+      "notes": "B-only 48-KiB shared ping-pong compiled and passed 4/4, but regressed to 79/68/85/79 and 77.75 total; restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "77.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T21:12:34+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122954"
     }
   ],
   "version": 2
