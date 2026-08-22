@@ -402,6 +402,72 @@ void verify_mma_output_mapping() {
               << " exact-cover=PASS\n";
 }
 
+void verify_mma_accumulator_epilogue_mapping() {
+    int accum[2][8][4];
+    for (int i = 0; i < 2; ++i) {
+        for (int fragment = 0; fragment < 8; ++fragment) {
+            for (int j = 0; j < 4; ++j) {
+                accum[i][fragment][j] = 100 * i + 10 * fragment + j;
+            }
+        }
+    }
+
+    int old_output[16][4] = {};
+    for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            for (int side = 0; side < 2; ++side) {
+                const int logical_vector = i * 8 + 2 * j + side;
+                for (int component = 0; component < 4; ++component) {
+                    old_output[logical_vector][component] =
+                        accum[i][2 * component + side][j];
+                }
+            }
+        }
+    }
+
+    int vector_visits[16] = {};
+    int scalar_components = 0;
+    for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            const int direct_values[8] = {
+                accum[i][0][j],
+                accum[i][2][j],
+                accum[i][4][j],
+                accum[i][6][j],
+                accum[i][1][j],
+                accum[i][3][j],
+                accum[i][5][j],
+                accum[i][7][j],
+            };
+            for (int side = 0; side < 2; ++side) {
+                const int logical_vector = i * 8 + 2 * j + side;
+                ++vector_visits[logical_vector];
+                for (int component = 0; component < 4; ++component) {
+                    const int direct_index = 4 * side + component;
+                    if (old_output[logical_vector][component]
+                        != direct_values[direct_index]) {
+                        throw std::runtime_error(
+                            "direct accumulator epilogue remap changed a component");
+                    }
+                    ++scalar_components;
+                }
+            }
+        }
+    }
+
+    if (scalar_components != 64
+        || !std::all_of(
+            vector_visits,
+            vector_visits + 16,
+            [](int count) { return count == 1; })) {
+        throw std::runtime_error(
+            "direct accumulator epilogue remap is not exhaustive");
+    }
+    std::cout << "REGRESSION maca-accum-epilogue-remap i-groups=2 j-lanes=4"
+              << " logical-vectors=16 scalar-components=" << scalar_components
+              << " exact-remap=PASS\n";
+}
+
 void verify_mma_grid_mapping() {
     constexpr int tile_rows = 128;
     for (const PublicCase& public_case : kPublicCases) {
@@ -555,6 +621,7 @@ void verify_mma_a_load_bounds() {
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
+    verify_mma_accumulator_epilogue_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
