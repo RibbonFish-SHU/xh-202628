@@ -432,6 +432,24 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T20:57:26+08:00",
       "url": "https://xpuoj.com/contest/12/submissions/122458"
+    },
+    {
+      "commit": "fa736f1cef8e643774eae2e0309956c176e2e613",
+      "evidence": "artifacts/raw/xpuoj/122553",
+      "experiment": "exp-20260822-026",
+      "id": "122553",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/69/88/83; exact user-kernel times 1016 us/10 ms/552 us/4143 us; page summary 15 ms/22.6 G. LF source 48,783 bytes, SHA-256 c77205fa3e45b095a4a6d426fe0f4606f86d201b3993a8985b505c640dcd90a5. Case-2 128x64 occupancy kernel regressed from best 73 points/8.158 ms to 69 points/10 ms; best remains 82.25 and live rank 25.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": "exp-026 accepted 4/4 at 80.75 (83/69/88/83; 1016us/10ms/552us/4143us); case-2 128x64 occupancy kernel regressed by 4 case points and 1.50 total; best remains 82.25, live rank 25; restore 8c519e6 source.",
+      "reported_at": "2026-08-22T15:10:50+00:00",
+      "reported_to_user": true,
+      "score": "80.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T22:42:37+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122553"
     }
   ],
   "version": 1
