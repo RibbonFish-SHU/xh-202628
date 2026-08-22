@@ -490,6 +490,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T17:59:55+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122853"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-029-b-pointer",
+      "claim_id": "claim-0c8c7f5d19ee4c399b8ec57de50141b5",
+      "commit": "99851e42f5b9f7f79268991a4626104cdb4e3cb0",
+      "evidence": "artifacts/raw/xpuoj/122877",
+      "experiment": "exp-20260823-029",
+      "id": "122877",
+      "language": "CUDA Maca",
+      "notes": "B-pointer induction preserved correctness (4/4) but scored 82.00; cases 83/73/89/83, below formal best 82.25; reject and restore formal best.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "82",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T18:19:36+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122877"
     }
   ],
   "version": 2
