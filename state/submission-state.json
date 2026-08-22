@@ -650,6 +650,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T23:03:19+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123003"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-036-b-frag-strip",
+      "claim_id": "claim-7824c21c8d7b48e8a9d82c49bc5cc23a",
+      "commit": "eccd5ec49f6442f2c15a7bfe7704f645595d7cfa",
+      "evidence": "artifacts/raw/xpuoj/123033",
+      "experiment": "exp-20260823-036",
+      "id": "123033",
+      "language": "CUDA Maca",
+      "notes": "B-fragment strip mining preserved 4/4 correctness but scored 1.00 below formal best; reject and restore formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "81.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T23:27:50+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123033"
     }
   ],
   "version": 2
