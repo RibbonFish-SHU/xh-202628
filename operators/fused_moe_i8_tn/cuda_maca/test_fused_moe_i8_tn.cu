@@ -404,151 +404,28 @@ void verify_mma_output_mapping() {
 
 void verify_mma_grid_mapping() {
     constexpr int tile_rows = 128;
-    int l2_scheduled_cases = 0;
     for (const PublicCase& public_case : kPublicCases) {
         const int grid_m = (public_case.config.em + tile_rows - 1) / tile_rows;
-        const int grid_n = (public_case.config.n + tile_rows - 1) / tile_rows;
-        const bool l2_scheduled = xh_fused_moe::use_case2_l2_schedule(public_case.config);
-        l2_scheduled_cases += l2_scheduled ? 1 : 0;
-        std::vector<int> visits(grid_m * grid_n, 0);
-
-        if (l2_scheduled) {
-            const int grid_x = xh_fused_moe::kCase2L2NGroup;
-            const int grid_y = grid_m;
-            const int grid_z = (grid_n + grid_x - 1) / grid_x;
-            int linear_block = 0;
-            for (int z = 0; z < grid_z; ++z) {
-                for (int y = 0; y < grid_y; ++y) {
-                    for (int x = 0; x < grid_x; ++x, ++linear_block) {
-                        const int tile_m = y;
-                        const int tile_n = z * grid_x + x;
-                        if (tile_n < grid_n) {
-                            ++visits[tile_m * grid_n + tile_n];
-                        }
-                        const int expected_m = (linear_block / grid_x) % grid_m;
-                        const int expected_n =
-                            (linear_block / (grid_x * grid_m)) * grid_x
-                            + linear_block % grid_x;
-                        if (tile_m != expected_m || tile_n != expected_n) {
-                            throw std::runtime_error("case-2 L2 schedule linear order mismatch");
-                        }
-                    }
+        const int grid_x = xh_fused_moe::mma_grid_x(public_case.config);
+        const int grid_z = (grid_m + grid_x - 1) / grid_x;
+        std::vector<int> visits(grid_m, 0);
+        for (int z = 0; z < grid_z; ++z) {
+            for (int x = 0; x < grid_x; ++x) {
+                const int tile_m = x + z * grid_x;
+                if (tile_m < grid_m) {
+                    ++visits[tile_m];
                 }
             }
-            if (grid_x != 2 || grid_y != 256 || grid_z != 16) {
-                throw std::runtime_error("case-2 L2 schedule launch shape mismatch");
-            }
-            std::cout << "REGRESSION maca-mma-grid case=" << public_case.name
-                      << " grid=(" << grid_x << "," << grid_y << "," << grid_z << ")"
-                      << " n-group=" << grid_x << " m-scan=PASS";
-        } else {
-            const int grid_x = xh_fused_moe::mma_grid_x(public_case.config);
-            const int grid_z = (grid_m + grid_x - 1) / grid_x;
-            for (int z = 0; z < grid_z; ++z) {
-                for (int y = 0; y < grid_n; ++y) {
-                    for (int x = 0; x < grid_x; ++x) {
-                        const int tile_m = x + z * grid_x;
-                        if (tile_m < grid_m) {
-                            ++visits[tile_m * grid_n + y];
-                        }
-                    }
-                }
-            }
-            if (grid_x != 1) {
-                throw std::runtime_error(
-                    std::string("baseline MMA grid shape changed for ") + public_case.name);
-            }
-            std::cout << "REGRESSION maca-mma-grid case=" << public_case.name
-                      << " grid_x=" << grid_x << " grid_z=" << grid_z
-                      << " baseline-order=PASS";
         }
-        if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        if (grid_x != 1
+            || !std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
             throw std::runtime_error(
                 std::string("MMA grid mapping failed for ") + public_case.name);
         }
-        std::cout << " exact-cover=PASS\n";
+        std::cout << "REGRESSION maca-mma-grid case=" << public_case.name
+                  << " grid_x=" << grid_x << " grid_z=" << grid_z
+                  << " exact-cover=PASS\n";
     }
-    if (l2_scheduled_cases != 1) {
-        throw std::runtime_error("case-2 L2 schedule must match exactly one public shape");
-    }
-}
-
-struct TileCacheMisses {
-    int a;
-    int b;
-};
-
-void touch_lru_tile(int key, bool is_b, int capacity, std::vector<int>* cache,
-                    TileCacheMisses* misses) {
-    const auto found = std::find(cache->begin(), cache->end(), key);
-    if (found == cache->end()) {
-        if (is_b) {
-            ++misses->b;
-        } else {
-            ++misses->a;
-        }
-    } else {
-        cache->erase(found);
-    }
-    cache->push_back(key);
-    if (static_cast<int>(cache->size()) > capacity) {
-        cache->erase(cache->begin());
-    }
-}
-
-TileCacheMisses model_case2_tile_misses(bool l2_schedule, int capacity) {
-    constexpr int grid_m = 256;
-    constexpr int grid_n = 32;
-    constexpr int b_key_base = grid_m;
-    std::vector<int> cache;
-    TileCacheMisses misses{0, 0};
-    const auto touch_cta = [&](int tile_m, int tile_n) {
-        const int expert = (tile_m * tile_m + 3 * tile_m) % 16;
-        touch_lru_tile(tile_m, false, capacity, &cache, &misses);
-        touch_lru_tile(
-            b_key_base + expert * grid_n + tile_n, true, capacity, &cache, &misses);
-    };
-
-    if (l2_schedule) {
-        for (int n_group = 0; n_group < grid_n; n_group += xh_fused_moe::kCase2L2NGroup) {
-            for (int tile_m = 0; tile_m < grid_m; ++tile_m) {
-                for (int n_offset = 0; n_offset < xh_fused_moe::kCase2L2NGroup; ++n_offset) {
-                    touch_cta(tile_m, n_group + n_offset);
-                }
-            }
-        }
-    } else {
-        for (int tile_m = 0; tile_m < grid_m; ++tile_m) {
-            for (int tile_n = 0; tile_n < grid_n; ++tile_n) {
-                touch_cta(tile_m, tile_n);
-            }
-        }
-    }
-    return misses;
-}
-
-void verify_case2_l2_reuse_model() {
-    constexpr int tile_bytes = 128 * 7168;
-    constexpr int unique_b_tiles = 8 * 32;
-    const TileCacheMisses baseline_24 = model_case2_tile_misses(false, 24);
-    const TileCacheMisses candidate_24 = model_case2_tile_misses(true, 24);
-    const TileCacheMisses baseline_272 = model_case2_tile_misses(false, 272);
-    const TileCacheMisses candidate_31 = model_case2_tile_misses(true, 31);
-    const TileCacheMisses candidate_32 = model_case2_tile_misses(true, 32);
-
-    if (baseline_24.a != 256 || baseline_24.b != 8192
-        || candidate_24.a != 4096 || candidate_24.b != 2208
-        || baseline_272.b != unique_b_tiles
-        || candidate_31.b == unique_b_tiles
-        || candidate_32.b != unique_b_tiles) {
-        throw std::runtime_error("case-2 finite-cache traffic model changed");
-    }
-    std::cout << "REGRESSION case2-l2-model tile-bytes=" << tile_bytes
-              << " baseline-max-b-reuse-footprints=271"
-              << " candidate-max-b-reuse-footprints=31"
-              << " lru24-misses=" << baseline_24.a + baseline_24.b
-              << "->" << candidate_24.a + candidate_24.b
-              << " cache-capacity-target-unverified=PASS\n";
 }
 
 void benchmark_public_case(const PublicCase& public_case) {
@@ -679,7 +556,6 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
-    verify_case2_l2_reuse_model();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }

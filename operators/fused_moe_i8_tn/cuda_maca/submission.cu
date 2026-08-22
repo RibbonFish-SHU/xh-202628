@@ -21,12 +21,6 @@ struct KernelConfig {
     int k;
 };
 
-constexpr int kCase2L2NGroup = 2;
-
-static inline bool use_case2_l2_schedule(const KernelConfig& config) {
-    return config.em == 32768 && config.n == 4096 && config.k == 7168;
-}
-
 static inline int mma_grid_x(const KernelConfig& config) {
     constexpr int kNumExperts = 256;
     constexpr int kTileRows = 128;
@@ -157,7 +151,6 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <bool kCase2L2Schedule>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -207,12 +200,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     dst = __builtin_mxc_byte_perm(src0, src1, 0x03020706)
 
     const int tid = threadIdx.x;
-    const int tile_m = kCase2L2Schedule
-        ? blockIdx.y
-        : blockIdx.x + blockIdx.z * gridDim.x;
-    const int tile_n = kCase2L2Schedule
-        ? blockIdx.z * kCase2L2NGroup + blockIdx.x
-        : blockIdx.y;
+    const int tile_m = blockIdx.x + blockIdx.z * gridDim.x;
+    const int tile_n = blockIdx.y;
     const int wave = tid / kMmaWaveSize;
     const int lane = tid % kMmaWaveSize;
     const int row_base = tile_m * kMmaTileM;
@@ -839,34 +828,13 @@ static inline void launch(
 #if XH_FUSED_MOE_MACA
     const dim3 block(kMmaThreads);
     const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
-    if (use_case2_l2_schedule(config)) {
-        const dim3 l2_grid(
-            kCase2L2NGroup,
-            grid_m,
-            (config.n + kMmaTileN * kCase2L2NGroup - 1)
-                / (kMmaTileN * kCase2L2NGroup)
-        );
-        fused_moe_i8_tn_mma_kernel<true><<<l2_grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
-        return;
-    }
     const int grid_x = mma_grid_x(config);
     const dim3 grid(
         grid_x,
         (config.n + kMmaTileN - 1) / kMmaTileN,
         (grid_m + grid_x - 1) / grid_x
     );
-    fused_moe_i8_tn_mma_kernel<false><<<grid, block>>>(
+    fused_moe_i8_tn_mma_kernel<<<grid, block>>>(
         a,
         b_col_major,
         scale_a,
