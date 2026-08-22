@@ -11,6 +11,7 @@
 - 用户给出的当前打榜入口：<https://xpuoj.com/contest/12/problem/1>。
 - 已于 2026-08-22 通过用户已登录的 OJ 页面再次只读确认题目为 `1. Agent 推理算子库优化 - Fused MoE i8 tn`，支持 CUDA Maca、Triton、TileLang，限制仍为 10000 ms / 4096 MiB，目标硬件为 C500。详细实时合同快照见 Skill reference；编码和每次提交前仍须复核页面变化。
 - 已完成 23 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳仍是 `#117114` / `8c519e6c1bb5` 的 exact-row A-load CUDA Maca 核心，4/4 Accepted、82.25 分。`#122209` 的 exp-024 adjacent-M 候选被用户取消，未在 C500 上执行；随后 `#122376` 被取消、`#122383` 以 82.00 分 Accepted，但页面源码哈希均精确对应已否决的 exp-023，而不是 exp-024。
+- 当前待目标验证候选为 `exp-20260822-025` / `542372e3560c`：它只修复 exp-024 串行 paired-tile 共用 LDS 的循环边界竞态，在第一 tile 最后一次 LDS 使用后加入 uniform CTA barrier；提交快照已通过 RTX A5000 代理 build/correctness/benchmark/regression，但 MACA/C500 编译、正确性与性能仍只能由 OJ 验证。
 - 2026-08-22 19:39 核对 contest 12 榜单：当前账号 `muxi2026C2047` 排名 25、最佳分 82.25；榜首 87 分。最佳版本四个测试点分数为 83、73、89、84；prefill gate-up 仍是主要短板。
 - NVIDIA 服务器：`lynsdu2@10.0.33.75`。
 - 已于 2026-08-18 完成该服务器的只读环境探测，并在用户明确许可后创建专用执行目录；后续远端 run 均只使用该隔离目录。
