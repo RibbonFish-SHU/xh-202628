@@ -630,6 +630,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T22:07:56+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122979"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-037-row-factor-shuffle",
+      "claim_id": "claim-da0938d5091644389f6b1e6b6303c23b",
+      "commit": "cea6b4bd765197a5646c5a216ea476e7612e9b56",
+      "evidence": "artifacts/raw/xpuoj/123003",
+      "experiment": "exp-20260823-037",
+      "id": "123003",
+      "language": "CUDA Maca",
+      "notes": "Width-16 row-factor shuffle preserved 4/4 correctness but scored 0.50 below formal best; reject and restore formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T23:03:19+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123003"
     }
   ],
   "version": 2
