@@ -12,7 +12,7 @@ commit=$3
 
 [[ "$base" =~ ^/[A-Za-z0-9._/-]+$ ]] || { printf 'unsafe base path\n' >&2; exit 64; }
 [[ "$base" != *"/../"* && "$base" != *"/./"* ]] || { printf 'unsafe base path\n' >&2; exit 64; }
-[[ "$run_id" =~ ^exp-[0-9]{8}-[0-9]{3}-[0-9a-f]{12}$ ]] || { printf 'unsafe run id\n' >&2; exit 64; }
+[[ "$run_id" =~ ^exp-[0-9]{8}-[0-9]{3}-[0-9a-f]{12}(-a[0-9]{2})?$ ]] || { printf 'unsafe run id\n' >&2; exit 64; }
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { printf 'unsafe commit\n' >&2; exit 64; }
 
 marker="$base/.xh-202628-execution-mirror"

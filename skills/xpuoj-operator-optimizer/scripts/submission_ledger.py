@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +17,7 @@ from typing import Any
 DEFAULT_STATE = (
     Path(__file__).resolve().parents[3] / "state" / "submission-state.json"
 )
+CONTROLLER = Path(__file__).resolve().with_name("submission_controller.py")
 
 
 def utc_now() -> str:
@@ -57,6 +60,55 @@ def write_state(path: Path, data: dict[str, Any]) -> None:
 
 def add_state_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+
+
+def centralized_runtime() -> tuple[Path, Path, Path] | None:
+    """Find the current/script repository's initialized centralized controller."""
+    checked: set[Path] = set()
+    for start in (Path.cwd(), DEFAULT_STATE.parent):
+        process = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if process.returncode != 0:
+            continue
+        worktree = Path(process.stdout.strip()).resolve()
+        if worktree in checked:
+            continue
+        checked.add(worktree)
+        common = subprocess.run(
+            [
+                "git", "-C", str(worktree), "rev-parse", "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if common.returncode != 0:
+            continue
+        common_dir = Path(common.stdout.strip()).resolve()
+        database = common_dir / "xh-202628" / "submission-control.sqlite3"
+        if database.exists():
+            primary = common_dir.parent.resolve()
+            mirror = primary / "state" / "submission-state.json"
+            return primary, database, mirror
+    return None
+
+
+def centralized_check(repo: Path, database: Path, state_path: Path) -> int:
+    process = subprocess.run(
+        [
+            sys.executable, str(CONTROLLER), "--repo", str(repo), "--db", str(database),
+            "--mirror", str(state_path), "check",
+        ],
+        check=False,
+    )
+    return process.returncode
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -178,6 +230,16 @@ def command_report(args: argparse.Namespace, path: Path, data: dict[str, Any]) -
 def main() -> int:
     args = build_parser().parse_args()
     path = args.state.resolve()
+    centralized = centralized_runtime()
+    if centralized:
+        repo, database, mirror = centralized
+        if args.command == "check":
+            return centralized_check(repo, database, mirror)
+        if args.command in ("record", "report"):
+            raise SystemExit(
+                "The centralized submission controller is active. Legacy record/report "
+                "is disabled; use submission_controller.py from the primary main worktree."
+            )
     data = load_state(path)
 
     if args.command == "check":

@@ -1,7 +1,11 @@
 # State And Ledgers
 
 - `PROJECT_STATE.md`：人类和 Agent 都应首先阅读的当前状态。
-- `experiments.jsonl`：由 `record_experiment.py` 逐行追加的实验记录，首次记录时自动创建。
-- `submission-state.json`：由 `submission_ledger.py` 管理的 OJ 提交和报告门禁。
+- `experiments.jsonl`：只由 Main Agent 根据 committed handoff 串行调用 `record_experiment.py` 追加；Producer/Auditor 不修改。
+- `submission-state.json`：由 Main Agent 的 `submission_controller.py` 导出的受跟踪 OJ 历史镜像；不作为并发控制真源。
+
+共享运行时数据库位于 Git common directory 的 `.git/xh-202628/submission-control.sqlite3`。它在所有 linked worktree 之间原子协调 candidate queue、controller epoch、唯一 active claim 和逐次报告门禁，不进入 Git。旧 `submission_ledger.py` 在该数据库存在后只保留只读兼容，不能写提交历史。
+
+Producer/Auditor 不修改本目录中的正式状态。Producer 将候选 handoff 提交到 `handoffs/`，并只通过 `candidate-enqueue` 写共享运行时队列；Auditor 不写队列。
 
 JSON/JSONL 中只保存可公开的技术元数据和相对产物路径。不得保存密码、token、Cookie、SSH 私钥或含个人信息的页面内容。

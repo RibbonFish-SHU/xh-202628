@@ -52,7 +52,7 @@ stage_run() {
   bash "$base/incoming/$run_id.stage.sh" "$base" "$run_id" "$commit" >/dev/null
 }
 
-success_id=exp-20260818-999-0123456789ab
+success_id=exp-20260818-999-0123456789ab-a01
 stage_run "$success_id"
 mkdir -- "$base/locks/run-slot-1.lock"
 PATH="$fake_bin:$PATH" bash "$base/runs/$success_id/source/scripts/remote-runner.sh" \

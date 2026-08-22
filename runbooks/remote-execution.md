@@ -10,6 +10,8 @@
 - 待运行入口位于 `remote-jobs/<experiment-id>.sh`，已经提交且能够从仓库根目录执行。
 - 实验 ID 使用 `exp-YYYYMMDD-NNN`，同一 ID 不复用。
 
+并行批次中，每个 Subagent 只从自己的干净 linked worktree 运行 Main Agent 分配的 experiment/GPU。Main Agent 负责避免 lane 间重复分配；远端 run-slot/GPU 锁负责处理启动竞态。所有 linked worktree 的原始结果统一回收到 primary 工作树的 `artifacts/raw/remote-runs/`，不会因候选 worktree 退役而丢失。
+
 入口脚本应自行完成 build、correctness、benchmark 和 regression，失败时返回非零退出码。不要在入口脚本中写密码、token、固定 GPU ID、远端绝对 run 路径或清理命令。
 
 可从 [`../templates/remote-job.sh`](../templates/remote-job.sh) 创建入口脚本，然后先提交：
@@ -28,7 +30,7 @@ ssh -o ClearAllForwardings=yes lynsdu2@10.0.33.75 `
   "nvidia-smi --query-gpu=index,name,uuid,utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits; nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader,nounits"
 ```
 
-从 `state/remote-execution.json` 的白名单内选择需要的卡。只有利用率和显存低于当前门禁、且该 GPU UUID 没有计算进程时才可选择；显示服务等图形进程不等同于计算进程。不要为了凑满 4 个并行任务而使用忙卡。状态查询与任务启动之间存在竞态，因此 runner 会在取得项目锁后再次检查；二次检查失败时记录失败实验并使用新实验 ID 重试，不覆盖旧 run。
+从 `state/remote-execution.json` 的白名单内选择需要的卡。只有利用率和显存低于当前门禁、且该 GPU UUID 没有计算进程时才可选择；显示服务等图形进程不等同于计算进程。不要为了凑满 4 个并行任务而使用忙卡。状态查询与任务启动之间存在竞态，因此 runner 会在取得项目锁后再次检查；二次检查失败时保留该 attempt 的记录，重新核对后用同一 experiment/commit 的下一 attempt 重试。
 
 然后从仓库根目录执行，例如（GPU ID 仅为示例，必须替换为刚核验的空闲卡）：
 
@@ -36,21 +38,22 @@ ssh -o ClearAllForwardings=yes lynsdu2@10.0.33.75 `
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\invoke-remote-gpu-run.ps1 `
   -ExperimentId exp-20260818-001 `
   -EntryPoint remote-jobs/exp-20260818-001.sh `
-  -GpuIds 1
+  -GpuIds 1 `
+  -Attempt 1
 ```
 
 脚本会：
 
 1. 检查门禁、GPU 白名单、入口文件、commit 和干净工作树。
 2. 用 `git archive HEAD` 生成临时 tar；不会包含 `.git`、未提交文件或仓库外文件。
-3. 上传到 `incoming/`，并在唯一的 `runs/<experiment-id>-<short-commit>/` 解包。
+3. 上传到 `incoming/`，并在唯一的 `runs/<experiment-id>-<short-commit>-aNN/` 解包。
 4. 使用 `/usr/local/cuda`、指定 GPU 和动态空闲检查运行入口；利用率阈值 50%、显存阈值 2048 MiB、单次上限 21600 秒。
 5. 保存环境、stdout、stderr、时间和退出状态。
-6. 把 `results/` 回收到本地 `artifacts/raw/remote-runs/<run-id>/`。
+6. 把 `results/` 回收到 primary 工作树的 `artifacts/raw/remote-runs/<run-id>/`。
 
 所有项目 SSH/SCP 调用显式使用 `ClearAllForwardings=yes`，不会继承本机 SSH 配置中的端口转发。
 
-入口失败时仍尝试回收结果，并以非零状态结束。run ID 或远端目录冲突时拒绝覆盖；创建新的实验 ID，不清理旧目录。
+入口失败时仍尝试回收结果，并以非零状态结束。run ID 或远端目录冲突时拒绝覆盖。若源码/假设不变且只因 GPU/slot 启动竞态失败，使用下一 `-Attempt`；若源码或假设变化，必须创建新实验 ID。任何情况都不清理旧目录。
 
 ## 结果处理
 

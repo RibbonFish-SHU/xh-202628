@@ -11,7 +11,10 @@ param(
     [Parameter(Mandatory = $true)]
     [int[]]$GpuIds,
 
-    [ValidatePattern('^exp-[0-9]{8}-[0-9]{3}-[0-9a-f]{12}$')]
+    [ValidateRange(1, 99)]
+    [int]$Attempt = 1,
+
+    [ValidatePattern('^exp-[0-9]{8}-[0-9]{3}-[0-9a-f]{12}(-a[0-9]{2})?$')]
     [string]$RetrieveExistingRun,
 
     [string]$StateFile = "state/remote-execution.json"
@@ -49,6 +52,16 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $gitRoot = Get-NativeText -FilePath "git" -ArgumentList @("-C", $repoRoot, "rev-parse", "--show-toplevel")
 if ([IO.Path]::GetFullPath($gitRoot) -ne $repoRoot) {
     throw "Script must run from the xh-202628-agent Git repository."
+}
+$commonGitDir = Get-NativeText -FilePath "git" -ArgumentList @(
+    "-C", $repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir"
+)
+$primaryRepoRoot = [IO.Path]::GetFullPath((Split-Path -Parent $commonGitDir))
+$primaryGitRoot = Get-NativeText -FilePath "git" -ArgumentList @(
+    "-C", $primaryRepoRoot, "rev-parse", "--show-toplevel"
+)
+if ([IO.Path]::GetFullPath($primaryGitRoot) -ne $primaryRepoRoot) {
+    throw "Could not resolve the primary worktree from the Git common directory."
 }
 
 $statePath = if ([IO.Path]::IsPathRooted($StateFile)) {
@@ -137,7 +150,7 @@ foreach ($gpuId in $requestedGpuIds) {
     }
 }
 
-$localResultParent = Join-Path $repoRoot "artifacts/raw/remote-runs"
+$localResultParent = Join-Path $primaryRepoRoot "artifacts/raw/remote-runs"
 if (-not [string]::IsNullOrWhiteSpace($RetrieveExistingRun)) {
     if (-not $RetrieveExistingRun.StartsWith("$ExperimentId-")) {
         throw "RetrieveExistingRun must belong to ExperimentId $ExperimentId."
@@ -150,7 +163,10 @@ if (-not [string]::IsNullOrWhiteSpace($RetrieveExistingRun)) {
         "-o", "ClearAllForwardings=yes", "-o", "LogLevel=ERROR", $sshTarget, $remoteStatusCommand
     )
     $remoteStatus = $remoteStatusText | ConvertFrom-Json
-    $expectedShortCommit = $RetrieveExistingRun.Substring($RetrieveExistingRun.Length - 12)
+    if ($RetrieveExistingRun -notmatch '^exp-[0-9]{8}-[0-9]{3}-([0-9a-f]{12})(-a[0-9]{2})?$') {
+        throw "Could not parse the commit suffix from RetrieveExistingRun."
+    }
+    $expectedShortCommit = $Matches[1]
     if ([string]$remoteStatus.run_id -ne $RetrieveExistingRun) {
         throw "Remote status run_id does not match the requested run."
     }
@@ -196,7 +212,8 @@ Invoke-NativeChecked -FilePath "git" -ArgumentList @("-C", $repoRoot, "cat-file"
 Invoke-NativeChecked -FilePath "git" -ArgumentList @("-C", $repoRoot, "cat-file", "-e", "HEAD:scripts/remote-stage.sh")
 Invoke-NativeChecked -FilePath "git" -ArgumentList @("-C", $repoRoot, "cat-file", "-e", "HEAD:scripts/remote-runner.sh")
 
-$runId = "$ExperimentId-$shortCommit"
+$attemptSuffix = "a{0:D2}" -f $Attempt
+$runId = "$ExperimentId-$shortCommit-$attemptSuffix"
 $remoteRun = "$remoteBase/runs/$runId"
 $remotePreflight = "grep -qx 'xh-202628-execution-mirror-v1' '$remoteBase/.xh-202628-execution-mirror' && test ! -e '$remoteBase/incoming/$runId.tar' && test ! -e '$remoteBase/incoming/$runId.stage.sh' && test ! -e '$remoteRun' && printf 'ready\n'"
 $preflightOutput = Get-NativeText -FilePath "ssh" -ArgumentList @("-o", "ClearAllForwardings=yes", "-o", "LogLevel=ERROR", $sshTarget, $remotePreflight)

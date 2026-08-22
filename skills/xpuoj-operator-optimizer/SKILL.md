@@ -1,6 +1,6 @@
 ---
 name: xpuoj-operator-optimizer
-description: Drive reproducible XH-202628 GPU operator optimization from an authoritative local Git worktree, including live XPU-OJ contract capture, committed-snapshot NVIDIA proxy runs over SSH, correctness and benchmark evidence, C500 target submissions, and mandatory per-submission user reports. Use when onboarding or resuming this competition workspace, optimizing FlashInfer, FlashAttention, or Fused MoE kernels, running remote NVIDIA tests, preparing an XPU-OJ submission, or analyzing an OJ score.
+description: Drive reproducible XH-202628 GPU operator optimization with parallel isolated candidate agents and one centralized XPU-OJ coordinator, including live contract capture, committed NVIDIA proxy runs, candidate review, crash-safe target submissions, and mandatory per-submission reports. Use when onboarding or resuming this competition workspace, orchestrating Subagents, optimizing FlashInfer, FlashAttention, or Fused MoE kernels, running remote NVIDIA tests, preparing an XPU-OJ submission, or analyzing an OJ score.
 ---
 
 # XPU-OJ Operator Optimizer
@@ -10,13 +10,15 @@ description: Drive reproducible XH-202628 GPU operator optimization from an auth
 1. Locate the local repository root containing `AGENTS.md`.
 2. Read `COMPETITION_CONTEXT.md`, `AGENTS.md`, and `state/PROJECT_STATE.md` completely.
 3. Inspect Git status, recent commits, experiment records, `state/submission-state.json`, and `state/remote-execution.json`.
-4. State the target problem, live-contract status, language, baseline commit, available device class, and unresolved gates.
-5. Treat the local repository as authoritative. Never edit source in the remote execution mirror.
+4. Determine the assigned role: Main Agent/coordinator, isolated candidate Producer, or independent read-only Auditor. Never infer the role from `HEAD` alone.
+5. State the target problem, live-contract status, language, explicit baseline commit, available device class, and unresolved gates.
+6. Treat the local Git repository as authoritative. Never edit source in the remote execution mirror.
 
 ## Load Only Needed Guidance
 
 - For first-time remote directory creation, read `../../runbooks/remote-bootstrap.md` and stop while permission is pending.
 - For a remote NVIDIA run, read `../../runbooks/remote-execution.md` and `references/nvidia-maca-boundary.md`.
+- For a parallel batch, all roles must read `../../runbooks/parallel-orchestration.md`; follow only the section for the assigned role and use the matching task template.
 - For local GitHub setup, read `references/github-sync.md`.
 - For Fused MoE, read `references/fused-moe-contract.md`, then capture the authenticated live OJ contract.
 - Before browser automation or an OJ submission, read `references/submission-protocol.md`.
@@ -43,15 +45,19 @@ Follow the live interface when local documents differ. Escalate deadline or elig
 - Save exact commands, seeds, environment, raw output, and source commit.
 - Never relax official tolerances or modify the evaluator to manufacture success.
 
-## Run One Measured Iteration
+## Produce And Review Candidates
 
-1. Write one falsifiable bottleneck hypothesis and assign `exp-YYYYMMDD-NNN`.
-2. Make one attributable change and run all locally available checks.
+The Main Agent owns experiment allocation, explicit baselines, isolated worktrees, candidate integration, formal state and submission priority. Producers work only in assigned candidate worktrees. Auditors work only in detached audit worktrees and never edit or enqueue. Neither role may touch `main`, GitHub, formal state, controller credentials, browser or OJ.
+
+For each lane:
+
+1. Main Agent assigns one falsifiable hypothesis, `exp-YYYYMMDD-NNN`, candidate ID, current workflow-bearing `worktree_base_commit`, and explicit measured `performance_baseline_commit`. The two commits must contain the same submission-source blob; never check out an old best commit that lacks current tools.
+2. Subagent makes one attributable change and runs all locally available checks.
 3. Create a deterministic `remote-jobs/<experiment-id>.sh` when NVIDIA testing is required.
-4. Commit the candidate and require a clean worktree.
+4. Commit the candidate and `handoffs/<experiment-id>.md`; require a clean worktree.
 5. Run `scripts/invoke-remote-gpu-run.ps1`; never transfer files by ad hoc recursive copy.
-6. Inspect returned raw evidence and record the experiment with `scripts/record_experiment.py`.
-7. Keep, supersede, or revert based on evidence. Use a new commit and experiment ID for every changed candidate.
+6. Producer inspects raw evidence, completes the committed handoff, and enqueues the immutable candidate with `submission_controller.py candidate-enqueue`. Producer must not append tracked `state/experiments.jsonl`.
+7. Main Agent serially imports the handoff into the experiment ledger, requests an independent audit when required, and integrates/promotes only candidates that meet the documented gate. Use a new experiment and candidate ID whenever submitted source changes.
 
 Label NVIDIA measurements `nvidia`/`proxy`. Never convert NVIDIA speedup into a claimed C500 speedup. Do not delete remote runs until the user approves a retention policy.
 
@@ -63,24 +69,25 @@ Submit only when one condition holds:
 - A candidate passed all available regression checks and has a documented reason to improve C500 behavior.
 - A failure fix requires target feedback unavailable locally.
 
-Check live quotas and queue state. Do not submit parameter sweeps without an explicit experiment design.
+Check live quotas and the centralized candidate/claim state. Do not submit parameter sweeps without an explicit experiment design. Waiting for one OJ result must not stop unrelated Subagents from producing candidates.
 
 ## Submit And Report
 
 Follow `references/submission-protocol.md` exactly:
 
-1. Run `python skills/xpuoj-operator-optimizer/scripts/submission_ledger.py check`.
-2. Verify clean source provenance and the tested commit hash.
-3. Submit through the user's authenticated local browser without exposing credentials.
-4. Wait for a terminal result and save evidence.
-5. Record the result with `submission_ledger.py record`.
-6. Send the user a report based on `../../templates/submission-report.md`.
-7. Only after sending that message, run `submission_ledger.py report`.
+1. Main Agent acquires the centralized controller and runs `submission_controller.py check`.
+2. Promote one integrated candidate, claim the global slot, and persist `arm` before the final click.
+3. Submit the exact committed source through the user's authenticated local browser without exposing credentials, then immediately `bind` the numeric submission ID.
+4. Wait for a terminal result, save evidence, and run `finalize`.
+5. Send the user a report based on `../../templates/submission-report.md`.
+6. Only after sending that message, run `submission_controller.py report` to release the slot.
 
 Treat compile errors, Wrong Answer, crashes, timeouts, and zero scores as reportable submissions. Never make another submission while a report is pending.
+
+If a target result does not become the formal best, restore the submission source from the explicit formal-best commit, verify its exact source hash, commit/push that restoration, and only then integrate another candidate. Never accumulate an untested combination on top of a losing candidate.
 
 ## Finish
 
 Complete an iteration only when code, exact commands, raw evidence, experiment record, Git commit, and decision agree. Complete an OJ iteration only after terminal OJ evidence and the user report exist.
 
-Before ending, update `state/PROJECT_STATE.md` so a new Agent can resume without conversation history.
+Main Agent updates `state/PROJECT_STATE.md` before ending so a new coordinator can resume without conversation history. Producers finish their committed handoff and queue entry. Auditors return read-only findings directly to Main Agent.
