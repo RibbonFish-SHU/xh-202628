@@ -552,11 +552,156 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+void verify_mma_n64_dispatch() {
+    int selected = 0;
+    for (const PublicCase& public_case : kPublicCases) {
+        const bool actual = xh_fused_moe::uses_prefill_gate_up_n64(public_case.config);
+        const bool expected = std::strcmp(public_case.name, "prefill-gate-up") == 0;
+        if (actual != expected) {
+            throw std::runtime_error(
+                std::string("MMA N64 dispatch mismatch for ") + public_case.name);
+        }
+        selected += actual ? 1 : 0;
+        std::cout << "REGRESSION maca-mma-n64-dispatch case=" << public_case.name
+                  << " selected=" << (actual ? "yes" : "no") << " PASS\n";
+    }
+    if (selected != 1) {
+        throw std::runtime_error("MMA N64 dispatch must select exactly one public case");
+    }
+}
+
+void verify_mma_n64_output_mapping() {
+    constexpr int tile_rows = 128;
+    constexpr int tile_cols = 64;
+    std::vector<int> visits(tile_rows * tile_cols, 0);
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        for (int row_group = 0; row_group < 2; ++row_group) {
+            for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
+                const int row = xh_fused_moe::mma_output_row_local(
+                    thread_id, row_group, row_in_group);
+                for (int col_in_group = 0; col_in_group < 4; ++col_in_group) {
+                    const int col = xh_fused_moe::mma_n64_output_col_local(
+                        thread_id, col_in_group);
+                    if (row < 0 || row >= tile_rows || col < 0 || col >= tile_cols) {
+                        throw std::runtime_error("MMA N64 output mapping is out of range");
+                    }
+                    ++visits[row * tile_cols + col];
+                }
+            }
+        }
+    }
+    if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("MMA N64 output mapping does not cover the tile exactly once");
+    }
+    std::cout << "REGRESSION maca-mma-n64-output elements=" << visits.size()
+              << " exact-cover=PASS\n";
+}
+
+void verify_mma_n64_grid_mapping() {
+    const xh_fused_moe::KernelConfig config{32768, 4096, 7168};
+    constexpr int tile_rows = 128;
+    constexpr int tile_cols = 64;
+    const int grid_x = 1;
+    const int grid_y = config.n / tile_cols;
+    const int grid_z = config.em / tile_rows;
+    std::vector<int> visits(static_cast<size_t>(grid_z) * grid_y, 0);
+    for (int z = 0; z < grid_z; ++z) {
+        for (int y = 0; y < grid_y; ++y) {
+            const int tile_m = z;
+            ++visits[static_cast<size_t>(tile_m) * grid_y + y];
+        }
+    }
+    if (grid_x != 1 || grid_y != 64 || grid_z != 256
+        || !std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("MMA N64 grid mapping failed for prefill-gate-up");
+    }
+    const uint64_t covered = static_cast<uint64_t>(grid_x) * grid_y * grid_z
+        * tile_rows * tile_cols;
+    if (covered != static_cast<uint64_t>(config.em) * config.n) {
+        throw std::runtime_error("MMA N64 grid does not cover EMxN exactly");
+    }
+    std::cout << "REGRESSION maca-mma-n64-grid grid=1x64x256 exact-cover=PASS\n";
+}
+
+void verify_mma_n64_fragment_mapping() {
+    constexpr int tile_cols = 64;
+    constexpr int k_chunks = 8;
+    std::vector<int> source_row(tile_cols * k_chunks, -1);
+    std::vector<int> source_k(tile_cols * k_chunks, -1);
+
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        const int g2s_row = thread_id / 8;
+        const int global_k_chunk = thread_id % 8;
+        const int shared_k_chunk = (g2s_row + global_k_chunk) % k_chunks;
+        for (int load = 0; load < 2; ++load) {
+            const int store_row = g2s_row + 32 * load;
+            const int index = store_row * k_chunks + shared_k_chunk;
+            if (source_row[index] != -1) {
+                throw std::runtime_error("MMA N64 shared B fragment is written twice");
+            }
+            source_row[index] = xh_fused_moe::mma_n64_b_load_row(store_row);
+            source_k[index] = global_k_chunk;
+        }
+    }
+
+    for (int thread_id = 0; thread_id < 256; ++thread_id) {
+        const int lane = thread_id % 64;
+        for (int k_half = 0; k_half < 2; ++k_half) {
+            const int lds_k = ((thread_id % 16) + lane / 16 + 4 * k_half) % k_chunks;
+            const int expected_k = lane / 16 + 4 * k_half;
+            for (int fragment = 0; fragment < 4; ++fragment) {
+                const int shared_row = (thread_id % 16) + 16 * fragment;
+                const int index = shared_row * k_chunks + lds_k;
+                const int expected_col = (thread_id % 16) * 4 + fragment;
+                if (source_row[index] != expected_col || source_k[index] != expected_k) {
+                    throw std::runtime_error("MMA N64 B LDS permutation is inconsistent");
+                }
+            }
+        }
+    }
+    std::cout << "REGRESSION maca-mma-n64-fragments contiguous-b64-columns=PASS\n";
+}
+
+void verify_mma_n64_resource_and_traffic_model() {
+    constexpr uint64_t em = 32768;
+    constexpr uint64_t n = 4096;
+    constexpr uint64_t k = 7168;
+    constexpr uint64_t baseline_ctas = (em / 128) * (n / 128);
+    constexpr uint64_t candidate_ctas = (em / 128) * (n / 64);
+    constexpr uint64_t baseline_a_bytes = baseline_ctas * 128 * k;
+    constexpr uint64_t candidate_a_bytes = candidate_ctas * 128 * k;
+    constexpr uint64_t baseline_b_bytes = baseline_ctas * 128 * k;
+    constexpr uint64_t candidate_b_bytes = candidate_ctas * 64 * k;
+    constexpr uint64_t baseline_macs = baseline_ctas * 128 * 128 * k;
+    constexpr uint64_t candidate_macs = candidate_ctas * 128 * 64 * k;
+    constexpr int baseline_shared_bytes = 128 * 128 + 128 * 128;
+    constexpr int candidate_shared_bytes = 128 * 128 + 64 * 128;
+    constexpr int baseline_accumulator_ints = 2 * 8 * 4;
+    constexpr int candidate_accumulator_ints = 2 * 4 * 4;
+
+    if (candidate_ctas != 2 * baseline_ctas
+        || candidate_a_bytes != 2 * baseline_a_bytes
+        || candidate_b_bytes != baseline_b_bytes
+        || candidate_macs != baseline_macs
+        || candidate_shared_bytes != 24 * 1024
+        || baseline_shared_bytes != 32 * 1024
+        || candidate_accumulator_ints * 2 != baseline_accumulator_ints) {
+        throw std::runtime_error("MMA N64 resource or traffic model changed unexpectedly");
+    }
+    std::cout << "REGRESSION maca-mma-n64-model ctas=2x A-bytes=2x B-bytes=1x"
+              << " shared=24KiB accumulators=0.5x PASS\n";
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
+    verify_mma_n64_dispatch();
+    verify_mma_n64_output_mapping();
+    verify_mma_n64_grid_mapping();
+    verify_mma_n64_fragment_mapping();
+    verify_mma_n64_resource_and_traffic_model();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
