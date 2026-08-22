@@ -378,17 +378,19 @@ void verify_mma_output_mapping() {
     constexpr int tile = 128;
     std::vector<int> visits(tile * tile, 0);
     for (int thread_id = 0; thread_id < 256; ++thread_id) {
-        for (int mma_row = 0; mma_row < 4; ++mma_row) {
-            for (int row_in_vector = 0; row_in_vector < 4; ++row_in_vector) {
+        for (int row_group = 0; row_group < 2; ++row_group) {
+            for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
                 const int row = xh_fused_moe::mma_output_row_local(
-                    thread_id, mma_row, row_in_vector);
-                for (int col_in_vector = 0; col_in_vector < 4; ++col_in_vector) {
-                    const int col = xh_fused_moe::mma_output_col_local(
-                        thread_id, col_in_vector);
-                    if (row < 0 || row >= tile || col < 0 || col >= tile) {
-                        throw std::runtime_error("MMA output mapping is out of range");
+                    thread_id, row_group, row_in_group);
+                for (int col_group = 0; col_group < 2; ++col_group) {
+                    for (int col_in_group = 0; col_in_group < 4; ++col_in_group) {
+                        const int col = xh_fused_moe::mma_output_col_local(
+                            thread_id, col_group, col_in_group);
+                        if (row < 0 || row >= tile || col < 0 || col >= tile) {
+                            throw std::runtime_error("MMA output mapping is out of range");
+                        }
+                        ++visits[row * tile + col];
                     }
-                    ++visits[row * tile + col];
                 }
             }
         }
@@ -550,202 +552,11 @@ void verify_mma_a_load_bounds() {
     }
 }
 
-void verify_mma_wave_fragment_mapping() {
-    constexpr int threads = 256;
-    constexpr int wave_size = 64;
-    constexpr int tile = 128;
-    constexpr int k_chunks = 8;
-    constexpr int fragments = 4;
-    constexpr int halves = 2;
-    const int shared_cells = tile * k_chunks;
-
-    std::vector<int> a_source_row(shared_cells, -1);
-    std::vector<int> a_source_k(shared_cells, -1);
-    std::vector<int> a_owner(shared_cells, -1);
-    std::vector<int> b_source_col(shared_cells, -1);
-    std::vector<int> b_source_k(shared_cells, -1);
-    std::vector<int> b_owner(shared_cells, -1);
-
-    for (int thread_id = 0; thread_id < threads; ++thread_id) {
-        const int wave = thread_id / wave_size;
-        const int lane = thread_id % wave_size;
-        const int store_k = ((thread_id / 8) + (thread_id % 8)) % k_chunks;
-        for (int load = 0; load < 4; ++load) {
-            const int a_row = wave * 32 + lane / 8 + 8 * load;
-            const int a_index = a_row * k_chunks + store_k;
-            const int b_row = thread_id / 8 + 32 * load;
-            const int b_index = b_row * k_chunks + store_k;
-            if (a_row < 0 || a_row >= tile || b_row < 0 || b_row >= tile
-                || a_source_row[a_index] != -1 || b_source_col[b_index] != -1) {
-                throw std::runtime_error("MMA shared store mapping is not one-to-one");
-            }
-            a_source_row[a_index] = thread_id / 8 + 32 * load;
-            a_source_k[a_index] = lane % 8;
-            a_owner[a_index] = wave;
-            b_source_col[b_index] = (thread_id / 8) * 4 + load;
-            b_source_k[b_index] = lane % 8;
-            b_owner[b_index] = wave;
-        }
-    }
-    if (!std::all_of(a_source_row.begin(), a_source_row.end(), [](int value) {
-            return value >= 0;
-        })
-        || !std::all_of(b_source_col.begin(), b_source_col.end(), [](int value) {
-            return value >= 0;
-        })) {
-        throw std::runtime_error("MMA shared store mapping leaves a hole");
-    }
-
-    const int operand_visits_size = 4 * fragments * tile * k_chunks;
-    std::vector<int> a_visits(operand_visits_size, 0);
-    std::vector<int> b_visits(operand_visits_size, 0);
-    int cross_wave_a = 0;
-    int cross_wave_b = 0;
-    for (int thread_id = 0; thread_id < threads; ++thread_id) {
-        const int wave = thread_id / wave_size;
-        const int lane = thread_id % wave_size;
-        const int wave_m = wave / 2;
-        const int wave_n = wave % 2;
-        for (int half = 0; half < halves; ++half) {
-            const int lds_k =
-                ((thread_id % 16) + lane / 16 + 4 * half) % k_chunks;
-            for (int mma_row = 0; mma_row < fragments; ++mma_row) {
-                const int shared_row =
-                    (thread_id % 16) + wave_m * 64 + 16 * mma_row;
-                const int index = shared_row * k_chunks + lds_k;
-                const int source_row = a_source_row[index];
-                const int source_k = a_source_k[index];
-                if (shared_row < 0 || shared_row >= tile
-                    || (shared_row * 128 + lds_k * 16) % 16 != 0
-                    || source_row < 0 || source_row >= tile
-                    || source_k < 4 * half || source_k >= 4 * half + 4) {
-                    throw std::runtime_error("MMA A LDS mapping is out of range or misaligned");
-                }
-                const int visit =
-                    ((wave * fragments + mma_row) * tile + source_row) * k_chunks
-                    + source_k;
-                ++a_visits[visit];
-                cross_wave_a += a_owner[index] != wave ? 1 : 0;
-            }
-            for (int mma_col = 0; mma_col < fragments; ++mma_col) {
-                const int shared_row =
-                    (thread_id % 16) + wave_n * 16 + 32 * mma_col;
-                const int index = shared_row * k_chunks + lds_k;
-                const int source_col = b_source_col[index];
-                const int source_k = b_source_k[index];
-                const int expected_col =
-                    xh_fused_moe::mma_output_col_local(thread_id, mma_col);
-                if (shared_row < 0 || shared_row >= tile
-                    || (shared_row * 128 + lds_k * 16) % 16 != 0
-                    || source_col != expected_col
-                    || source_k < 4 * half || source_k >= 4 * half + 4) {
-                    throw std::runtime_error("MMA B LDS fragment identity is inconsistent");
-                }
-                const int visit =
-                    ((wave * fragments + mma_col) * tile + source_col) * k_chunks
-                    + source_k;
-                ++b_visits[visit];
-                cross_wave_b += b_owner[index] != wave ? 1 : 0;
-            }
-        }
-    }
-
-    for (int wave = 0; wave < 4; ++wave) {
-        for (int fragment = 0; fragment < fragments; ++fragment) {
-            std::vector<int> expected_rows(tile, 0);
-            std::vector<int> expected_cols(tile, 0);
-            for (int lane = 0; lane < wave_size; ++lane) {
-                const int thread_id = wave * wave_size + lane;
-                for (int row_in_vector = 0; row_in_vector < 4; ++row_in_vector) {
-                    expected_rows[xh_fused_moe::mma_output_row_local(
-                        thread_id, fragment, row_in_vector)] = 1;
-                }
-                expected_cols[xh_fused_moe::mma_output_col_local(
-                    thread_id, fragment)] = 1;
-            }
-            for (int coordinate = 0; coordinate < tile; ++coordinate) {
-                for (int k_chunk = 0; k_chunk < k_chunks; ++k_chunk) {
-                    const int a_visit =
-                        ((wave * fragments + fragment) * tile + coordinate)
-                        * k_chunks + k_chunk;
-                    const int b_visit = a_visit;
-                    if (a_visits[a_visit] != expected_rows[coordinate]
-                        || b_visits[b_visit] != expected_cols[coordinate]) {
-                        throw std::runtime_error(
-                            "MMA operand fragments do not match their output coordinates");
-                    }
-                }
-            }
-        }
-    }
-    if (cross_wave_a != 1024 || cross_wave_b != 1536) {
-        throw std::runtime_error("MMA cross-wave LDS ownership model changed");
-    }
-    std::cout << "REGRESSION maca-wave-2x2-fragments A/B-exact=PASS"
-              << " aligned=PASS cross-wave-A=" << cross_wave_a
-              << " cross-wave-B=" << cross_wave_b << "\n";
-}
-
-void verify_mma_wave_resource_and_sync_model() {
-    constexpr int tile_m = 128;
-    constexpr int tile_n = 128;
-    constexpr int tile_k = 128;
-    constexpr int threads = 256;
-    constexpr int mma_rows = 4;
-    constexpr int mma_cols = 4;
-    constexpr int mma_depth = 8;
-    constexpr int accumulator_vectors = mma_rows * mma_cols;
-    constexpr int accumulator_ints = accumulator_vectors * 4;
-    constexpr int a_fragment_ints = mma_rows * mma_depth;
-    constexpr int b_fragment_ints = mma_cols * mma_depth;
-    constexpr int lds_b128_per_tile = 2 * (mma_rows + mma_cols);
-    constexpr int shared_bytes = tile_m * tile_k + tile_n * tile_k;
-    constexpr int a_bytes_per_tile = 4 * 16 * threads;
-    constexpr int b_bytes_per_tile = 4 * 16 * threads;
-    constexpr int mma_per_tile = mma_rows * mma_cols * mma_depth;
-    constexpr int output_bytes_per_tile = threads * accumulator_vectors * 8;
-
-    if (accumulator_vectors != 16 || accumulator_ints != 64
-        || a_fragment_ints != 32 || b_fragment_ints != 32
-        || a_fragment_ints + b_fragment_ints != 64
-        || lds_b128_per_tile != 16 || shared_bytes != 32 * 1024
-        || a_bytes_per_tile != tile_m * tile_k
-        || b_bytes_per_tile != tile_n * tile_k
-        || mma_per_tile != 128
-        || output_bytes_per_tile != tile_m * tile_n * 2) {
-        throw std::runtime_error("MMA 2x2 resource or traffic model changed");
-    }
-
-    for (const PublicCase& public_case : kPublicCases) {
-        const int k_tiles = public_case.config.k / tile_k;
-        const int barriers = 1 + 2 * (k_tiles - 1);
-        const int a_loads_per_thread = 4 * k_tiles;
-        const int b_loads_per_thread = 4 * k_tiles;
-        const int lds_per_thread = lds_b128_per_tile * k_tiles;
-        const int mma_instructions = mma_per_tile * k_tiles;
-        if ((public_case.config.k % tile_k) != 0
-            || a_loads_per_thread * 16 * threads != tile_m * public_case.config.k
-            || b_loads_per_thread * 16 * threads != tile_n * public_case.config.k
-            || barriers != 1 + 2 * (public_case.config.k / tile_k - 1)
-            || lds_per_thread != 16 * k_tiles
-            || mma_instructions != 128 * k_tiles) {
-            throw std::runtime_error(
-                std::string("MMA 2x2 dynamic model failed for ") + public_case.name);
-        }
-        std::cout << "REGRESSION maca-wave-2x2-model case=" << public_case.name
-                  << " LDS-b128/thread=" << lds_per_thread
-                  << " MMA=" << mma_instructions << " barriers=" << barriers
-                  << " PASS\n";
-    }
-}
-
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
-    verify_mma_wave_fragment_mapping();
-    verify_mma_wave_resource_and_sync_model();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

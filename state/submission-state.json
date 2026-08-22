@@ -550,6 +550,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T19:43:17+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/122918"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-032-wave-2x2",
+      "claim_id": "claim-fc2bdfc4f97c410f87de58c00dfaaeb3",
+      "commit": "5088ea3b038ec39fc63b1f8f28a7725da8e72805",
+      "evidence": "artifacts/raw/xpuoj/122928",
+      "experiment": "exp-20260823-032",
+      "id": "122928",
+      "language": "CUDA Maca",
+      "notes": "Accepted 4/4 at 81.25; cases 82/72/88/83; displayed user-kernel times 1080 us/9 ms/553 us/4148 us. The 2x2 wave decomposition reduced modeled operand fragments and LDS reads but regressed all displayed cases, especially case 2; reject and restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "81.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-22T20:04:33+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/122928"
     }
   ],
   "version": 2
