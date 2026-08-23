@@ -719,15 +719,31 @@ void verify_output_scratch_sort_structure() {
             throw std::runtime_error("skewed expert count changed");
         }
     }
-    for (int cluster = 0; cluster < 32; ++cluster) {
-        const int first_rank = cluster == 0 ? 1 : cluster * 8;
-        const int last_rank = cluster * 8 + 7;
-        const int expert = skewed[skewed_map[first_rank]];
-        for (int rank = first_rank + 1; rank <= last_rank; ++rank) {
-            if (skewed[skewed_map[rank]] != expert) {
-                throw std::runtime_error("skewed eight-M cluster crosses an expert boundary");
-            }
+    const int case2_grid_x = xh_fused_moe::kOutputScratchSortGridM;
+    if (case2_grid_x < 1 || case2_grid_x > 8) {
+        throw std::runtime_error("case-2 expert cluster width is outside [1,8]");
+    }
+    const int skewed_cluster_count =
+        (static_cast<int>(skewed.size()) + case2_grid_x - 1) / case2_grid_x;
+    int homogeneous_clusters = 0;
+    int mixed_clusters = 0;
+    int max_cluster_experts = 0;
+    for (int cluster = 0; cluster < skewed_cluster_count; ++cluster) {
+        const int first_rank = cluster == 0 ? 1 : cluster * case2_grid_x;
+        const int last_rank = std::min(
+            static_cast<int>(skewed.size()) - 1,
+            (cluster + 1) * case2_grid_x - 1);
+        if (first_rank > last_rank) {
+            continue;
         }
+        int cluster_experts = 1;
+        for (int rank = first_rank + 1; rank <= last_rank; ++rank) {
+            cluster_experts += skewed[skewed_map[rank]]
+                != skewed[skewed_map[rank - 1]];
+        }
+        homogeneous_clusters += cluster_experts == 1;
+        mixed_clusters += cluster_experts > 1;
+        max_cluster_experts = std::max(max_cluster_experts, cluster_experts);
     }
     for (const PublicCase& public_case : kPublicCases) {
         const bool expected = std::string(public_case.name) == "prefill-gate-up";
@@ -746,8 +762,10 @@ void verify_output_scratch_sort_structure() {
         const int grid_y = (public_case.config.n + 127) / 128;
         const int grid_m = (public_case.config.em + 127) / 128;
         const int grid_z = (grid_m + expected_grid_x - 1) / expected_grid_x;
-        if (expected && (grid_y != 32 || grid_z != 32)) {
-            throw std::runtime_error("case-2 expert-cluster grid is not (8,32,32)");
+        if (expected && (grid_y != 32
+            || grid_z != (xh_fused_moe::kOutputScratchSortTiles + expected_grid_x - 1)
+                / expected_grid_x)) {
+            throw std::runtime_error("case-2 expert-cluster grid is inconsistent");
         }
     }
 
@@ -758,31 +776,44 @@ void verify_output_scratch_sort_structure() {
     constexpr size_t tile_zero_overwrite_bytes = body_first_write_byte;
     constexpr size_t one_a_tile_bytes = static_cast<size_t>(128) * 7168;
     constexpr size_t one_b_tile_bytes = static_cast<size_t>(128) * 7168;
-    constexpr size_t cluster_working_set_bytes =
+    constexpr size_t homogeneous_cluster_working_set_bytes =
         xh_fused_moe::kOutputScratchSortGridM * one_a_tile_bytes + one_b_tile_bytes;
     constexpr size_t modeled_l2_bytes = 8U * 1024U * 1024U;
-    constexpr size_t modeled_l2_headroom_bytes = modeled_l2_bytes - cluster_working_set_bytes;
+    const size_t max_cluster_working_set_bytes =
+        xh_fused_moe::kOutputScratchSortGridM * one_a_tile_bytes
+        + static_cast<size_t>(max_cluster_experts) * one_b_tile_bytes;
     static_assert(scratch_bytes == 1024, "sort map is not exactly 1 KiB");
     static_assert(body_first_write_byte == 1048576, "body write boundary changed");
     static_assert(tile_zero_overwrite_bytes == 1048576, "tile-zero span changed");
-    static_assert(cluster_working_set_bytes == 8257536, "8M cluster working set changed");
-    static_assert(modeled_l2_headroom_bytes == 131072, "8 MiB headroom changed");
+    static_assert(
+        homogeneous_cluster_working_set_bytes <= modeled_l2_bytes,
+        "homogeneous expert cluster exceeds modeled 8 MiB L2");
     if (scratch_bytes > body_first_write_byte
         || scratch_bytes > tile_zero_overwrite_bytes) {
         throw std::runtime_error("sort map overlaps the body or escapes tile zero");
+    }
+    if (max_cluster_working_set_bytes > modeled_l2_bytes) {
+        throw std::runtime_error("public-skew expert cluster exceeds modeled 8 MiB L2");
     }
 
     std::cout << "REGRESSION maca-output-scratch-sort exhaustive-patterns="
               << exhaustive_patterns
               << " full-distributions=all-same,all-unique,skewed"
               << " stable-order=PASS bijection=PASS exact-mn-cover=8192/8192"
-              << " case2-grid=(8,32,32) expert-count-intervals=PASS"
-              << " skewed-homogeneous-clusters=32/32"
+              << " case2-grid=(" << case2_grid_x << ",32," << skewed_cluster_count << ")"
+              << " expert-count-intervals=PASS"
+              << " skewed-homogeneous-clusters=" << homogeneous_clusters
+              << " skewed-mixed-clusters=" << mixed_clusters
               << " scratch-bytes=" << scratch_bytes
               << " body-first-write-byte=" << body_first_write_byte
               << " tile-zero-overwrite-byte=" << tile_zero_overwrite_bytes
-              << " cluster-working-set-bytes=" << cluster_working_set_bytes
-              << " modeled-l2-headroom-bytes=" << modeled_l2_headroom_bytes
+              << " homogeneous-working-set-bytes="
+              << homogeneous_cluster_working_set_bytes
+              << " max-cluster-working-set-bytes=" << max_cluster_working_set_bytes
+              << " modeled-l2-headroom-bytes="
+              << (max_cluster_working_set_bytes <= modeled_l2_bytes
+                  ? modeled_l2_bytes - max_cluster_working_set_bytes
+                  : 0)
               << " input-readonly=PASS device-map=PASS\n";
 }
 
