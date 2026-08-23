@@ -552,11 +552,33 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+void verify_mma_launch_bounds_contract() {
+    constexpr int max_threads_per_block = 256;
+    constexpr int min_blocks_per_multiprocessor = 2;
+    constexpr int shared_bytes_per_block = 32768;
+    constexpr int contracted_threads =
+        max_threads_per_block * min_blocks_per_multiprocessor;
+    constexpr int contracted_shared_bytes =
+        shared_bytes_per_block * min_blocks_per_multiprocessor;
+
+    if (contracted_threads != 512
+        || contracted_shared_bytes != 65536) {
+        throw std::runtime_error("MMA launch-bounds contract model changed");
+    }
+
+    std::cout << "REGRESSION maca-launch-bounds max-threads="
+              << max_threads_per_block << " min-blocks="
+              << min_blocks_per_multiprocessor << " two-block-threads="
+              << contracted_threads << " two-block-lds="
+              << contracted_shared_bytes << " PASS\n";
+}
+
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
+    verify_mma_launch_bounds_contract();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

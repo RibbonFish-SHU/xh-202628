@@ -151,7 +151,7 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-__global__ void fused_moe_i8_tn_mma_kernel(
+__global__ __launch_bounds__(256, 2) void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
     const float* __restrict__ scale_a_ptr,
