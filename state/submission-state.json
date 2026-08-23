@@ -790,6 +790,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T03:54:27+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123400"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-045-full-bsm-zero",
+      "claim_id": "claim-32d43305f16d45bdbfabf3b2d3414910",
+      "commit": "28b51c6a777f927a82358c0db7c836c31ab87f01",
+      "evidence": "artifacts/raw/xpuoj/123488",
+      "experiment": "exp-20260823-045",
+      "id": "123488",
+      "language": "CUDA Maca",
+      "notes": "Sample matched_ratio=0.130741, max_abs_diff=294.0 at (1280,855), target=-154.0 vs ref=140.0; all four scored cases skipped. Target rejects full A+B single-buffer count-zero BSM semantics; restore formal best.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "0",
+      "status": "Wrong Answer",
+      "submitted_at": "2026-08-23T05:17:12+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123488"
     }
   ],
   "version": 2
