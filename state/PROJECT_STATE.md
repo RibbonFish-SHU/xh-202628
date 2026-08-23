@@ -64,7 +64,7 @@
 | Fused MoE compiler-managed BSM 候选 | audit-rejected | `exp-20260823-046` / `db1f44283559` 按官方文档把 steady 八条 LDG+STS 改为 `is_async=false` BSM，并只在第二个 steady completion boundary 使用 uniform `__syncthreads()`；proxy/NVIDIA 来源、fallback correctness、映射和回归通过。独立审计确认 B0-B3/A0-A1 位于文档支持的 CTA 完成边界之后，但 A2/A3 在该边界之前被 same-wave cross-lane LDS 消费，peeled tail 也缺少完成原语；候选在集成和 OJ 前拒绝。下一实验必须完整恢复 A2/A3 ordinary register LDG+STS 生命周期。 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 43 | 新增 `#123488` Wrong Answer/0/exp-045；已登记但按静默模式延迟报告，当前最佳仍为 `#117114` 的 82.25、实时排名 25 |
-| 待向用户报告的提交 | `#122822`、`#122853`、`#122877`、`#122909`、`#122918`、`#122928`、`#122954`、`#122971`、`#122979`、`#123003`、`#123033`、`#123095`、`#123118`、`#123150`、`#123253`、`#123337`、`#123400`、`#123488` | 均已 finalized、槽位已释放；仅等待用户主动打断或询问时汇总，不构成后续提交门禁 |
+| 待向用户报告的提交 | none | `#122822` 至 `#123488` 的 18 条延迟终态已于 2026-08-23 用户询问状态时一次性汇总并标记 reported；槽位此前均已释放 |
 | 并行编排工作流 | implemented | Main Agent 统一管理隔离 Subagent、最多 4 路 NVIDIA run 和唯一 XPU-OJ active claim |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
