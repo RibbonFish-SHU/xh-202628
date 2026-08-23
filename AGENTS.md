@@ -19,7 +19,7 @@
 - 本地 `E:\XH-202628\xh-202628-agent` 是唯一 primary 工作树；它的 `main` 和 Git 历史是正式源码源头。
 - 并行候选只能位于 Main Agent 通过 `scripts/parallel_worktree.py` 创建的 sibling linked worktree。每个 Subagent 独占一个 branch/worktree。
 - GitHub 的认证、pull/push 只由 Main Agent 在 primary 工作树完成。
-- NVIDIA 服务器只是执行镜像：接收某个已提交 commit 的归档，运行测试，再返回结果。
+- C500 评测配套机只是执行镜像：接收 candidate commit 和显式 baseline source 的归档，运行目标测试，再返回结果。
 - 远端镜像不包含 `.git`，不直接访问 GitHub，也不得成为手工改源码的第二工作树。
 - XPU-OJ 操作使用本地控制端中用户已登录的浏览器会话。
 
@@ -27,10 +27,11 @@
 
 ### 2.1 并行所有权
 
-- Main Agent 独占 `main`、实验 ID 分配、baseline 选择、候选集成、正式状态、controller token、GitHub、浏览器、XPU-OJ 和用户提交报告。
+- Main Agent 独占 `main`、实验 ID 分配、baseline 选择、C500 执行槽与调用器、候选集成、正式状态、controller token、GitHub、浏览器、XPU-OJ 和用户提交报告。
+- 只有 Main Agent 可以创建或分派 Subagent/Auditor。Producer 和 Auditor 不得 spawn 子代理、转派任务或扩大 lane；需要额外并行工作时只向 Main Agent 提议。
 - Candidate Producer 只能实现被分配的一个可证伪假设，提交自己的 candidate branch，写 `handoffs/<experiment-id>.md`，并执行唯一允许的共享写操作 `submission_controller.py candidate-enqueue`。
 - Independent Auditor 只在 Main Agent 创建的 detached audit worktree 中复核精确 candidate commit；禁止编辑、commit、入队或修改 producer handoff。
-- Producer/Auditor 禁止修改 `state/PROJECT_STATE.md`、`state/experiments.jsonl`、`state/submission-state.json`，禁止切换 `main`、push GitHub、访问浏览器/OJ、执行 controller 特权命令或索取 controller/recovery token。
+- Producer/Auditor 禁止修改 `state/PROJECT_STATE.md`、`state/experiments.jsonl`、`state/submission-state.json`，禁止切换 `main`、push GitHub、访问 C500/浏览器/OJ、执行 controller 特权命令、索取 controller/recovery token 或继续委派子代理。
 - 每条 lane 必须有唯一 batch/experiment/candidate、当前含完整工具的 `worktree_base_commit`、显式已测的 `performance_baseline_commit`、机制 family 和验收门槛。创建器必须确认两种 baseline 的 submission source blob 相同；历史性能 commit 不能直接作为缺少新工具的 worktree。
 - 详细流程、角色模板和崩溃恢复见 `runbooks/parallel-orchestration.md`。
 
@@ -40,28 +41,28 @@
 
 当前授权状态：
 
-- **远端执行镜像已创建。** `/home/user/lynsdu2/xh-202628-agent` 已核对；不得再次初始化、覆盖或扩展到其他路径。
-- **GPU 策略已授权。** 可用 GPU 0-7，最多 4 个并行 run；任何选中卡存在计算进程时必须拒绝启动。
+- **C500 执行镜像已创建。** `/root/xh-202628-agent` 已核对；不得再次初始化、覆盖或扩展到其他路径。
+- **C500 策略已授权。** device 0、最多 1 个 run；存在任何设备进程、slice 利用率/显存超过门禁或配额变化时必须拒绝启动。
 - GitHub `origin` 已配置为 `git@github.com:RibbonFish-SHU/xh-202628.git`，使用本机已验证的 SSH 身份。
-- 未提供 C500 本地算力；NVIDIA 结果不得声称为 C500 结果。
+- **C500 已可用。** 当前观测为 MetaX C500/xcore1000、MACA 3.7.1.5、25% compute slice、16000 MiB VRAM；新实验禁止再启动 NVIDIA 测试。
 
-机器门禁位于 `state/remote-execution.json`。许可、创建时间、精确路径和 GPU 策略已经记录。不得为绕过脚本而擅自修改门禁。
+机器门禁位于 `state/c500-execution.json`。仓库只记录 SSH alias `xh-c500`，不记录密码、私钥或完整入口。旧 `state/remote-execution.json` 已停用，仅保留历史 NVIDIA 结果的来源信息。不得为绕过脚本而擅自修改门禁。
 
-远端只允许触及 `/home/user/lynsdu2/xh-202628-agent`。不得递归读取、索引、修改、移动、清理或借用服务器上的其他项目、环境和凭据。
+远端只允许触及 `/root/xh-202628-agent`。不得删除或覆盖既有 run，不得把该镜像变成第二 Git 工作树。
 
 ## 4. 远端执行协议
 
-每次 NVIDIA 测试严格遵守：
+每次 C500 测试严格遵守：
 
-1. 在本地完成代码和一个位于 `remote-jobs/` 的可执行入口脚本。
-2. 本地测试能够执行的部分，并记录一个明确、可证伪的实验假设。
-3. 提交全部待测源码；要求工作树完全干净。
-4. 使用 `scripts/invoke-remote-gpu-run.ps1`。该脚本只通过 `git archive HEAD` 传输已提交文件。
-5. 远端在唯一的 `runs/<experiment-id>-<short-commit>-aNN/` 中解包并运行；不手工编辑源码，保留原始 `source.tar` 作为来源证据。纯 GPU/slot 启动竞态使用下一 attempt，不复用或另烧 experiment ID。
-6. 回收 `results/` 到本地忽略目录 `artifacts/raw/remote-runs/`，核对退出码和原始日志。
-7. 用实验账本记录 commit、设备、命令、结果路径和结论；只把经过检查的小型证据提交 Git。
+1. Producer 提交候选源码、初版 handoff，以及与 `templates/remote-job.sh` blob 完全相同的 `remote-jobs/<experiment-id>.sh`；Producer 不连接 C500。
+2. Main Agent 记录可证伪的目标硬件假设、显式 `performance_baseline_commit`、待测 `candidate_commit` 和其 `worktree_base_commit`（调用器中的 `WorkflowCommit`）；创建器必须用两个 reservation ref 分别固定 workflow 与 performance baseline。
+3. Main Agent 从干净、受信的控制工作树运行 `scripts/invoke-c500-run.ps1`。调用器验证本地 invoke/stage blob，归档 `WorkflowCommit` 作为两臂共同 harness，只从 candidate/baseline commit 分别叠加 submission source；candidate 的入口脚本还必须与受信模板 blob 相同。
+4. 远端 staging 先核对三份归档、stage 与两份源码 SHA-256，拒绝 link/越界成员，失败或成功都原子落为唯一的 `runs/<experiment-id>-<short-commit>-aNN/`。
+5. runner 以持久 single-run claim 和清洁 `env -i` 环境完成 build、correctness、regression、预热和严格四 case/five-sample ABBA benchmark；保留环境、前后 `mx-smi`、源码/控制树完整性与结果 manifest。纯 slot 启动竞态使用下一 attempt，不复用或另烧 experiment ID。当前仍是无文件系统沙箱的 root 进程，只能运行已审阅提交，不能把环境清理误称为权限隔离。
+6. 调用器先回收到 `artifacts/raw/c500-runs/*.partial-*`，核对 terminal state、退出码、所有 commit/hash、paired schema 与 manifest 后才原子改为正式结果目录。
+7. Main Agent 把结果交回 Producer 完成 metadata-only handoff；submission source 与已测 commit 必须保持同一 blob。随后导入实验账本，只把经过检查的小型证据提交 Git。
 
-禁止传输未提交文件、`.git`、秘密、构建树和无关文件。远端 run 默认永久保留，未取得保留/清理策略前不得自动删除或覆盖。
+禁止传输未提交文件、`.git`、秘密、构建树和无关文件。禁止直接执行 candidate 自带的 runner、harness 或任意 job 内容。远端 run 默认永久保留，未取得保留/清理策略前不得自动删除或覆盖。
 
 ## 5. 优化纪律
 
@@ -71,7 +72,7 @@
 4. 每轮只验证一个性能假设，只做一组可归因修改。
 5. 每轮执行 `build -> test -> benchmark -> regression`；失败实验也记录原因。
 6. 提交 OJ 前确认源码 commit 等于已测试 commit。
-7. 在 C500 可用前，所有 NVIDIA 性能判断只写成 `proxy/NVIDIA` 结论。
+7. C500 本地结果写成 `c500-local`；OJ slice 未确认与本地相同前，只用 paired 相对收益筛选，不把本地绝对时间换算为 OJ 分数。
 
 严禁修改官方测试标准、硬编码测试点、跳过计算或利用评测系统缺陷。
 

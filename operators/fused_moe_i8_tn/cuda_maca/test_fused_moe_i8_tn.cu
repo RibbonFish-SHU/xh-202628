@@ -13,6 +13,12 @@
 
 namespace {
 
+#if defined(__XCORE_WN__)
+constexpr const char* kBenchmarkDevice = "c500-local";
+#else
+constexpr const char* kBenchmarkDevice = "nvidia-proxy";
+#endif
+
 #define CUDA_CHECK(expression) check_cuda((expression), #expression, __FILE__, __LINE__)
 
 void check_cuda(cudaError_t status, const char* expression, const char* file, int line) {
@@ -367,7 +373,7 @@ void benchmark_inference_query_path() {
     std::sort(two_query_ns.begin(), two_query_ns.end());
     const double fast_median = fast_path_ns[kRounds / 2];
     const double two_query_median = two_query_ns[kRounds / 2];
-    std::cout << "BENCHMARK proxy-host-inference fast_path_ns=" << std::fixed
+    std::cout << "BENCHMARK host-inference fast_path_ns=" << std::fixed
               << std::setprecision(1) << fast_median
               << " two_query_ns=" << two_query_median
               << " speedup=" << std::setprecision(3) << two_query_median / fast_median
@@ -505,7 +511,8 @@ void benchmark_public_case(const PublicCase& public_case) {
     const double median_ms = sorted[sorted.size() / 2];
     const double operations = 2.0 * config.em * config.n * config.k;
     const double tops = operations / (median_ms * 1.0e9);
-    std::cout << "BENCHMARK proxy=NVIDIA case=" << public_case.name << " samples_ms=";
+    std::cout << "BENCHMARK device=" << kBenchmarkDevice
+              << " case=" << public_case.name << " samples_ms=";
     for (size_t i = 0; i < milliseconds.size(); ++i) {
         std::cout << (i == 0 ? "" : ",") << std::fixed << std::setprecision(3) << milliseconds[i];
     }

@@ -12,8 +12,9 @@
 
 - Local correctness:
 - Regression:
-- NVIDIA proxy benchmark:
-- Known C500 validation gap:
+- C500 paired benchmark and raw evidence:
+- C500 toolchain/slice/source hashes:
+- Known local-C500 versus OJ gap:
 
 ## OJ Result
 

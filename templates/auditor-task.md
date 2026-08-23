@@ -26,6 +26,7 @@ deadline_or_stop_condition: <explicit condition>
 
 - Confirm the worktree is detached at the exact candidate commit, the worktree base is its ancestor, and the worktree-base source exactly matches the explicit performance-baseline source.
 - Do not edit tracked files, create commits or branches, enqueue/reject/promote candidates, modify formal state, access GitHub, use the browser, or operate XPU-OJ.
+- Do not spawn another Agent or delegate the audit. Return requests for extra checks to Main Agent.
 - Build or test only when the task explicitly requests it. Generated build output stays disposable and must not become a commit or handoff mutation.
 - Review the complete candidate diff against the assigned base. Check contract, coverage/addressing, read-only inputs, synchronization, boundary cases, launch geometry and claimed performance mechanism.
 - Treat producer notes as claims to verify, not as evidence by themselves. Cite exact file/line or command evidence for every blocking finding.

@@ -13,14 +13,14 @@
 | 实时合同快照 | partial | CUDA Maca 与 Triton 签名、4 组 shape、容差和环境已复核；2026-08-23 提交页未显示配额/冷却，目标硬件为 C500；TileLang 待实际使用前复核 |
 | 本地工作区 | complete | `E:\XH-202628\xh-202628-agent` 是唯一可信源码工作区 |
 | 本地 Git 仓库 | connected | `main` 跟踪 `origin/main`；作者沿用远端提交 `Yuyang Dai <dyyshanghai@shu.edu.cn>` |
-| 远端 SSH 只读探测 | complete | 已检查 `lynsdu2@10.0.33.75`，未写入 |
-| 远端目录创建许可 | complete | 用户回复“1、允许”；许可和创建结果均已记录 |
-| 远端执行目录 | complete | `/home/user/lynsdu2/xh-202628-agent` 于 2026-08-18T21:12:09+08:00 创建并核对 |
-| 远端角色 | decided | 仅执行已提交 commit 的镜像，不作为 Git 工作树 |
-| GPU 使用策略 | authorized | GPU 0-7；最多 4 个并行 run；不抢占已有计算进程；其余阈值见 JSON |
+| C500 SSH transport | active | 仓库只使用 WSL SSH alias `xh-c500`；网关不支持端到端公钥认证，当前用不落盘密码的持久 control connection |
+| C500 执行目录 | complete | `/root/xh-202628-agent` 于 2026-08-23 创建并核对，只作受信 workflow archive 与双 source overlay 的执行镜像 |
+| C500 使用策略 | authorized | device 0；最多 1 个 run；无设备进程；25% compute / 16000 MiB slice 必须与记录一致 |
+| 历史 NVIDIA 镜像 | disabled | `/home/user/lynsdu2/xh-202628-agent` 与旧结果保留；禁止启动新 NVIDIA run |
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
-| NVIDIA 执行链路 | verified | `exp-20260818-001` 在空闲 GPU 1 成功完成归档、隔离 staging、CUDA 12.2 编译、内核运行和结果回收；`exp-20260818-000` 的预检拒绝也已留档 |
+| C500 原生工具链探针 | verified | 当前 Fused MoE harness 已用 CUCC/MXCC 为 xcore1000 编译；correctness 3/3、完整 regression 和 4 组 public benchmark 通过 |
+| C500 受信控制面 | implementation-complete | Main Agent 单槽；显式 workflow/candidate/baseline commit；archive/source hash；link 拒绝；原子 staging/status/recovery；严格 ABBA 与结果 manifest。本地 fixture 已通过，真实端到端 smoke 待本分支提交后执行 |
 | Fused MoE 正确基线 | target-verified | `exp-20260818-004` / `b6e4272e9d8f` 已经 OJ `#116973` 验证 MXMACA 编译和 4/4 正确性；C500 得分仅 11，不能作为性能候选 |
 | Fused MoE MMA 基线 | target-verified | `exp-20260819-007` / `83fd3d26e95f` 已由 OJ `#117056` 验证 MXMACA 编译和 4/4 正确性；恢复官方 `grid_x=1` 调度后得分 81.75、排名 23，仅测试点 1 增加 1 分 |
 | Fused MoE wide-MMA 候选 | target-regressed | `exp-20260819-008` / `d24ad933e174` 经 OJ `#117079` 验证 4/4 正确但仅 79.25 分；prefill gate-up 从 73 降至 63，已由 `c2d5bcd` 恢复 81.75 分源码 |
@@ -63,15 +63,25 @@
 | Fused MoE full A+B count-zero BSM 候选 | target-rejected | `exp-20260823-045` / `28b51c6a777f` 把 steady 四个 A 与四个 B 的寄存器 LDG + ordinary STS 全部改成连续 BSM，并以 `arrive(64)` + `barrier_inst` 等待单缓冲下一 tile；独立映射/同步审计及 proxy/NVIDIA 门禁通过。OJ `#123488` 在 xcore1000 编译成功但样例 Wrong Answer：`matched_ratio=0.130741`、`max_abs_diff=294.0`，四个正式点全部 Skipped、0 分。目标否决该 count-zero completion/visibility 模型；活动源码与测试已精确恢复 `8c519e6`。 |
 | Fused MoE compiler-managed BSM 候选 | audit-rejected | `exp-20260823-046` / `db1f44283559` 按官方文档把 steady 八条 LDG+STS 改为 `is_async=false` BSM，并只在第二个 steady completion boundary 使用 uniform `__syncthreads()`；proxy/NVIDIA 来源、fallback correctness、映射和回归通过。独立审计确认 B0-B3/A0-A1 位于文档支持的 CTA 完成边界之后，但 A2/A3 在该边界之前被 same-wave cross-lane LDS 消费，peeled tail 也缺少完成原语；候选在集成和 OJ 前拒绝。下一实验必须完整恢复 A2/A3 ordinary register LDG+STS 生命周期。 |
 | Fused MoE safe-six compiler-managed BSM 候选 | target-rejected | `exp-20260823-047` / `384e2206d262` 只把 steady B0-B3/A0-A1 六条 LDG+ordinary STS 改为 flat-pointer `is_async=false` BSM，并由下一图像消费前的 exact uniform `__syncthreads()` 完成；完整保留 formal-best A2/A3 steady/peeled ordinary register LDG+STS。proxy/NVIDIA 来源、fallback build/correctness/regression 和独立同步审计通过，但 OJ `#123700` 在 xcore1000 编译成功后样例 Wrong Answer：`matched_ratio=0.130758`、`max_abs_diff=294.5`，四个正式点全部 Skipped、0 分。目标否决该 `is_async=false` BSM completion/visibility 模型；活动源码与测试已精确恢复 `8c519e6`。 |
-| C500 本地算力 | unavailable | 当前未提供 |
+| C500 本地算力 | available | MetaX C500/xcore1000；MACA 3.7.1.5；当前为 25% compute、16000 MiB slice；OJ slice 尚未确认等同 |
 | Agent OJ 提交次数 | 44 | 新增 `#123700` Wrong Answer/0/exp-047；已登记并释放槽位，当前最佳仍为 `#117114` 的 82.25、实时排名 25 |
 | 待向用户报告的提交 | none | `#123700` 已于 2026-08-23 本次状态询问时完整汇总并标记 reported；槽位此前已释放 |
-| 并行编排工作流 | implemented | Main Agent 统一管理隔离 Subagent、最多 4 路 NVIDIA run 和唯一 XPU-OJ active claim |
+| 并行编排工作流 | c500-native | Main Agent 统一管理隔离 Subagent、唯一 C500 ABBA 验证槽和唯一 XPU-OJ active claim |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
-机器可读远端门禁见 `state/remote-execution.json`。
+机器可读当前门禁见 `state/c500-execution.json`；`state/remote-execution.json` 仅保留已停用 NVIDIA 历史配置。
 
-## 远端只读探测快照
+## C500 执行环境快照
+
+- 设备：MetaX C500，target `xcore1000`，物理 64 GiB HBM2e、104 AP。
+- 当前容器 slice：device 0、25% compute、16000 MiB VRAM；单 run，启动时要求 `mx-smi --show-process` 无设备进程。
+- 软件：Ubuntu 24.04、MACA 3.7.1.5、MXCC 1.0.0 (`d9102a1572`)、kernel driver 3.8.30、mx-smi 2.3.1、PyTorch 2.8.0+metax3.7.1.3。
+- 硬件模型：wave64、128-byte cache line、32 KiB L1/AP、8 MiB L2、最高 xcore clock 1600 MHz。
+- 编译路径：设置 `MACA_PATH=/opt/maca` 和 `CUDA_PATH=/opt/maca/tools/cu-bridge`，使用 `/opt/maca/tools/cu-bridge/bin/cucc -O3 -std=c++17 -arch=sm_80 -lineinfo ... -lcuda`；实际 device target 为 xcore1000。
+- Profiler：`mcProfiler` 可用；当前未发现 `mcTracer`。
+- 解释边界：同机 paired 相对结果标记 `c500-local`；OJ slice 未确认前，本地 absolute timing 不等同 OJ timing/score。
+
+## 历史 NVIDIA 只读探测快照
 
 - Home：`/home/user/lynsdu2`。
 - OS：Ubuntu 20.04.6，kernel 5.15。

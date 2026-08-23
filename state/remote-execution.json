@@ -10,7 +10,9 @@
     "created_at": "2026-08-18T21:12:09+08:00"
   },
   "execution": {
-    "enabled": true,
+    "enabled": false,
+    "disabled_reason": "superseded-by-native-c500-execution",
+    "disabled_at": "2026-08-23",
     "authorization_quote": "2、GPU策略可以更激进，以完成任务为主",
     "authorized_at": "2026-08-18T21:06:19+08:00",
     "allowed_gpu_ids": [0, 1, 2, 3, 4, 5, 6, 7],

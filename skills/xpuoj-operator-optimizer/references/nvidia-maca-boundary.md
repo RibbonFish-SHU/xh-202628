@@ -1,6 +1,6 @@
-# NVIDIA Proxy Versus MACA/C500
+# Historical NVIDIA Proxy Versus MACA/C500
 
-Read this reference before interpreting any NVIDIA benchmark.
+New NVIDIA runs are disabled. Read this reference only to interpret existing historical proxy evidence; use `c500-native-optimization.md` for new candidates.
 
 ## Evidence Classes
 

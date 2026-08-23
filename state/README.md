@@ -1,6 +1,8 @@
 # State And Ledgers
 
 - `PROJECT_STATE.md`：人类和 Agent 都应首先阅读的当前状态。
+- `c500-execution.json`：当前 C500 alias、执行镜像、单槽/slice 门禁、工具链和已观测硬件指纹；不含凭据。
+- `remote-execution.json`：已停用的 NVIDIA 历史执行配置，只用于解释/恢复旧结果。
 - `experiments.jsonl`：只由 Main Agent 根据 committed handoff 串行调用 `record_experiment.py` 追加；Producer/Auditor 不修改。
 - `submission-state.json`：由 Main Agent 的 `submission_controller.py` 导出的受跟踪 OJ 历史镜像；不作为并发控制真源。
 

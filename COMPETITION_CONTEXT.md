@@ -12,12 +12,12 @@
 - 已于 2026-08-22 通过用户已登录的 OJ 页面再次只读确认题目为 `1. Agent 推理算子库优化 - Fused MoE i8 tn`，支持 CUDA Maca、Triton、TileLang，限制仍为 10000 ms / 4096 MiB，目标硬件为 C500。详细实时合同快照见 Skill reference；编码和每次提交前仍须复核页面变化。
 - 已完成 44 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳和活动源码仍是 `#117114` / `8c519e6c1bb5` 的 exact-row A-load CUDA Maca 核心，4/4 Accepted、82.25 分。`#122209` 的同步不完整 exp-024 被取消；`#122376`/`#122383` 实际重复提交 exp-023；exp-025 至 exp-047 的后续候选均未超过最佳，其中 BF16 ties-away、MMA-chain interleave、row-factor scalar fusion / `#123095` 与 inline B LDS row / `#123150` 仅同分，K64 / `#123400` 回退到 67.75 分，full A+B count-zero BSM / `#123488` 与 safe-six compiler-managed BSM / `#123700` 均样例 Wrong Answer、0 分；所有 losing candidate 均已恢复最佳源码。
 - 2026-08-23 17:05 核对 contest 12 榜单：当前账号 `muxi2026C2047` 排名 25、最佳分 82.25；榜首 87 分。最佳版本四个测试点分数为 83、73、89、84；prefill gate-up 仍是主要短板。
-- NVIDIA 服务器：`lynsdu2@10.0.33.75`。
-- 已于 2026-08-18 完成该服务器的只读环境探测，并在用户明确许可后创建专用执行目录；后续远端 run 均只使用该隔离目录。
-- 用户明确要求：在服务器创建任何工作目录之前，必须先取得他的明确许可。
-- 用户已于 2026-08-18 回复“1、允许”，明确批准创建 `/home/user/lynsdu2/xh-202628-agent`；该目录已于 21:12:09 +08:00 创建并核对。
-- 用户授权 GPU 策略可以更激进、以完成任务为主；落实为 GPU 0-7、最多 4 个并行 run，同时不抢占已有计算进程。
-- 用户决定本地 `xh-202628-agent` 是唯一 Git 工作区；需要算力时，把已提交 commit 的项目快照传到服务器同名专用目录执行，再取回结果。
+- 2026-08-23 用户提供了评测配套 MetaX C500，并授权配置连接和专用执行镜像。仓库中只记录 SSH alias `xh-c500`，不记录完整入口或凭据。
+- C500 专用执行目录 `/root/xh-202628-agent` 已创建并核对；它只接收受信 workflow commit 归档和 candidate/baseline submission-source overlay，不含 `.git`，不作为第二工作树。
+- C500 当前实测：xcore1000、MACA 3.7.1.5、MXCC 1.0.0 (`d9102a1572`)、driver 3.8.30、wave64、128-byte cache line、32 KiB L1/AP、8 MiB L2。容器实际可见 25% compute slice 和 16000 MiB VRAM。
+- 入口网关只开放 password，无法端到端公钥认证；WSL `xh-c500` 使用不落盘密码的持久 OpenSSH control connection。连接丢失时由用户交互输入一次密码。
+- 此前获批的 NVIDIA 执行镜像和历史结果继续保留，但新工作流已停用 NVIDIA run；后续候选直接在 C500 上完成目标编译、正确性、回归与配对性能测试。
+- 用户决定本地 `xh-202628-agent` 是唯一 Git 工作区；需要算力时，由 Main Agent 固定 workflow commit 的 runner/harness，只把 candidate commit 与显式 baseline commit 的 submission source 叠加到两臂，再传到 C500 镜像执行并取回结果。
 - GitHub 仓库为 `git@github.com:RibbonFish-SHU/xh-202628.git`，本机 SSH 身份已验证为 `RibbonFish-SHU`。
 
 ## 2. 这场比赛到底交什么
@@ -84,25 +84,13 @@ Down 典型 `(7168,2048)`。这些只是当前资料快照；提交前必须逐�
 - 即使 XPU-OJ 页面显示更晚的比赛结束日期（既有检查曾看到 2026-10-31），也不能据此推翻 9 月 5 日的初赛材料截止时间。截止规则如有变化，只接受组委会正式通知。
 - 邮件包需包含可复现源码、测试/测试框架、性能脚本、性能报告、Agent/Skill、PPT 和文档；还需同步报名系统审核通过的报名表。除报名表外，作品材料不得携带学校、老师和学生个人信息。
 
-## 6. NVIDIA 与 C500 的边界
+## 6. 本地 C500 与 OJ 的边界
 
-NVIDIA 服务器可以做：
+配套机和 OJ 都使用 C500/MACA，因此本地环境可以直接验证 MXCC/xcore1000 编译、wave64 映射、目标 intrinsic、寄存器/LDS/occupancy、barrier/BSM 语义、128-byte transaction 和真实缓存行为。它现在是候选晋级的首要性能门禁，不再依赖 NVIDIA 代理推断。
 
-- 建立 PyTorch/CPU 高精度参考实现和随机差分测试。
-- 理解 shape、布局、量化、路由和数值误差。
-- 开发 CUDA/Triton/TileLang 的可迁移算法原型。
-- 验证编译流程、内存越界、竞态、边界条件和回归测试。
-- 做 NVIDIA 代理 Benchmark，筛掉明显较差的实现。
-- 沉淀 Agent 工作流、实验账本、Git 历史和报告材料。
+每个候选必须在同一 C500 run 中对 candidate 和显式 baseline 做 build、correctness、regression、预热与 ABBA paired benchmark；保存 MACA/MXCC、slice、source hash、`mx-smi` 前后状态和全部原始 samples。可根据同机 paired 相对收益筛选候选，并用 `mcProfiler`/目标 codegen 回答具体瓶颈问题。
 
-NVIDIA 服务器不能证明：
-
-- MACA 编译器能够编译同一份源码。
-- C500 上的 wave/寄存器/LDS/缓存/带宽行为与 NVIDIA 相同。
-- NVIDIA 上的相对快慢在 C500 上仍成立。
-- 代码已达到最终榜单性能或可复现性要求。
-
-所有 NVIDIA 数据必须标为 `proxy/NVIDIA`，不得写成 C500 结果。所有涉及榜单性能的结论只能来自 XPU-OJ 或之后获得的 C500 环境。没有 C500 本地算力时，OJ 是目标平台反馈通道，但不能靠频繁盲提交代替工程测试。
+但当前配套机只分配 25% compute / 16000 MiB，尚未确认 OJ 使用相同 slice、系统负载和计时封装。因此本地结果统一写 `c500-local`：目标兼容性和相对方向可信度高，绝对时间、有效 TOPS 和预期 OJ 分数不作等价声明。OJ 仍是最终计分裁决。
 
 ## 7. 正确工作流理解
 
@@ -115,9 +103,9 @@ NVIDIA 服务器不能证明：
   -> 提出一个可证伪的性能假设
   -> 每轮只做一组可归因的修改
   -> Git commit
-  -> git archive HEAD -> NVIDIA 执行镜像
-  -> build -> test -> benchmark -> 回归
-  -> 回收原始结果并记录 proxy/NVIDIA 证据
+  -> workflow commit + candidate/baseline source -> C500 执行镜像
+  -> build -> correctness -> regression -> warmup -> ABBA benchmark
+  -> 回收原始结果并记录 c500-local paired 证据
   -> XPU-OJ 提交并等待终态
   -> 保存结果和页面证据
   -> 登记结果并释放单一 OJ 槽
@@ -144,23 +132,24 @@ NVIDIA 服务器不能证明：
 本地 xh-202628-agent（唯一可信 Git 工作区）
   |-- git/gh/GitHub MCP -> GitHub（用户决定公开或私有）
   |-- 已登录浏览器 -> XPU-OJ / C500 目标评测
-  `-- git archive HEAD -> SSH/SCP
+  `-- trusted workflow archive + candidate/baseline source overlays -> WSL SSH/SCP
                               |
                               v
-NVIDIA 执行镜像 /home/user/lynsdu2/xh-202628-agent
-  唯一 run 目录 + 无 .git 源码快照 + 测试/Benchmark 原始产物
+C500 执行镜像 /root/xh-202628-agent（SSH alias xh-c500）
+  单执行槽 + 无 .git 的固定 harness/双源码快照 + 目标测试原始产物
                               |
                               `-> SCP 回收 results 到本地
 ```
 
-批准的服务器绝对目录 `/home/user/lynsdu2/xh-202628-agent` 已创建。不得再次初始化，不得移动、删除或修改服务器上的其他项目。
+批准的 C500 目录 `/root/xh-202628-agent` 已创建。不得再次初始化，不得移动、删除或覆盖既有 run。
 
-远端不是 GitHub 同步端：不安装 `gh`，不保存 GitHub token/SSH key，不执行 clone/pull/push，也不手工修改快照源码。每次远端测试必须来自干净工作树的已提交 commit，通过 `git archive HEAD` 传输，并在唯一 run 目录执行。结果取回后在本地记录；未确定保留策略前不自动删除远端 run。
+远端不是 GitHub 同步端：不保存 GitHub token，不执行 clone/pull/push，也不手工修改快照源码。每次测试必须绑定显式 workflow/candidate/baseline commit、三份 archive SHA-256 和两份 source SHA-256；只有 Main Agent 能从干净受信控制工作树占用执行槽。结果经 terminal status 与 manifest 验证后在本地记录；未确定保留策略前不自动删除远端 run。
 
 ## 10. 尚未解决、不得擅自假设的问题
 
 - GitHub 仓库可见性尚未单独确认，但 SSH 读写身份和现有 `main` 已确认。
 - 远端自动清理仍未授权；达到 100 GiB 门禁时必须停止并报告。
+- OJ 是否也使用 25% compute / 16000 MiB slice 尚未确认；不得把本地 C500 absolute timing 当成 OJ timing。
 - 当前 OJ 标题、CUDA Maca 接口、shape 和正确性口径已保存为合同快照；2026-08-19 提交前页面未显示配额或冷却限制，且四台 C500 评测机在线。TileLang 的完整签名仍需在实际选型前保存，提交限制和榜单状态仍须在每次提交前实时复核。
 - 9 月 5 日之后 OJ 成绩是否冻结、统一复测细节、Agent 性能复现口径、终审版本规则等尚无正式答案。
 

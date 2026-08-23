@@ -1,4 +1,4 @@
 interface:
   display_name: "XPU-OJ Operator Optimizer"
-  short_description: "Run parallel candidates with one continuous OJ lane"
-  default_prompt: "Use $xpuoj-operator-optimizer to run parallel isolated candidates, serialize XPU-OJ submissions, and defer consolidated reports until user interruption."
+  short_description: "Optimize operators natively on C500 and submit safely"
+  default_prompt: "Use $xpuoj-operator-optimizer to run isolated C500-tested candidates and serialize XPU-OJ submissions."

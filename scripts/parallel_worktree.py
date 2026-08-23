@@ -16,27 +16,55 @@ EXPERIMENT_RE = re.compile(r"^exp-[0-9]{8}-[0-9]{3}$")
 BATCH_RE = re.compile(r"^batch-[0-9]{8}-[0-9]{2}$")
 LANE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-ZERO_COMMIT = "0" * 40
 REQUIRED_WORKFLOW_FILES = (
     "AGENTS.md",
+    "runbooks/c500-execution.md",
     "runbooks/parallel-orchestration.md",
-    "scripts/invoke-remote-gpu-run.ps1",
+    "scripts/invoke-c500-run.ps1",
+    "scripts/c500-runner.sh",
+    "scripts/c500-stage.sh",
+    "scripts/run-c500-fused-moe-paired.sh",
+    "scripts/summarize-c500-abba.py",
     "scripts/parallel_worktree.py",
     "skills/xpuoj-operator-optimizer/SKILL.md",
     "skills/xpuoj-operator-optimizer/scripts/submission_controller.py",
+    "state/c500-execution.json",
+    "templates/remote-job.sh",
     "templates/subagent-handoff.md",
     "templates/subagent-task.md",
 )
 
 
-def git(repo: Path, args: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    process = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+def git(
+    repo: Path,
+    args: Sequence[str],
+    *,
+    check: bool = True,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    command = ["git", "-C", str(repo), *args]
+    if input_text is None:
+        process = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    else:
+        binary_process = subprocess.run(
+            command,
+            input=input_text.encode("ascii"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        process = subprocess.CompletedProcess(
+            binary_process.args,
+            binary_process.returncode,
+            binary_process.stdout.decode("utf-8", errors="replace"),
+            binary_process.stderr.decode("utf-8", errors="replace"),
+        )
     if check and process.returncode != 0:
         raise SystemExit(f"git {' '.join(args)} failed: {process.stderr.strip()}")
     return process
@@ -161,19 +189,35 @@ def command_create(args: argparse.Namespace) -> int:
     if existing_job.returncode == 0:
         raise SystemExit(f"Experiment ID already exists on main: {args.experiment}")
     reservation = f"refs/xh-202628/experiments/{args.experiment}"
+    baseline_reservation = f"refs/xh-202628/baselines/{args.experiment}"
+    transaction = (
+        "start\n"
+        f"create {reservation} {args.worktree_base_commit}\n"
+        f"create {baseline_reservation} {args.performance_baseline_commit}\n"
+        "prepare\n"
+        "commit\n"
+    )
     reserved = git(
         repo,
-        [
-            "update-ref", "-m", f"reserve {args.batch}/{args.lane}", reservation,
-            args.worktree_base_commit, ZERO_COMMIT,
-        ],
+        ["update-ref", "--stdin", "-m", f"reserve {args.batch}/{args.lane}"],
         check=False,
+        input_text=transaction,
     )
     if reserved.returncode != 0:
         existing = git(repo, ["rev-parse", "--verify", reservation], check=False)
-        owner = existing.stdout.strip() if existing.returncode == 0 else "unknown"
+        existing_baseline = git(
+            repo, ["rev-parse", "--verify", baseline_reservation], check=False
+        )
+        owner = existing.stdout.strip() if existing.returncode == 0 else "unreserved"
+        baseline_owner = (
+            existing_baseline.stdout.strip()
+            if existing_baseline.returncode == 0
+            else "unreserved"
+        )
         raise SystemExit(
-            f"Experiment ID is already reserved: {args.experiment} (base={owner})"
+            f"Experiment ID is already reserved: {args.experiment} "
+            f"(workflow={owner}, baseline={baseline_owner}); "
+            f"transaction error: {reserved.stderr.strip()}"
         )
 
     root = safe_worktree_root(repo)
@@ -207,6 +251,7 @@ def command_create(args: argparse.Namespace) -> int:
         "source": source,
         "branch": branch,
         "reservation_ref": reservation,
+        "baseline_reservation_ref": baseline_reservation,
         "worktree": str(path),
     }
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -234,6 +279,14 @@ def command_audit_create(args: argparse.Namespace) -> int:
         repo,
         ["rev-parse", "--verify", f"refs/xh-202628/experiments/{args.experiment}"],
     ).stdout.strip()
+    baseline_reservation = git(
+        repo,
+        ["rev-parse", "--verify", f"refs/xh-202628/baselines/{args.experiment}"],
+    ).stdout.strip()
+    if baseline_reservation != args.performance_baseline_commit:
+        raise SystemExit(
+            "Audit performance baseline does not match the reserved baseline commit."
+        )
     require_workflow_files(repo, reservation)
     performance_blob = require_matching_performance_source(
         repo, reservation, args.performance_baseline_commit, source
@@ -267,6 +320,7 @@ def command_audit_create(args: argparse.Namespace) -> int:
         "candidate_branch": expected_branch,
         "worktree_base_commit": reservation,
         "performance_baseline_commit": args.performance_baseline_commit,
+        "baseline_reservation_ref": f"refs/xh-202628/baselines/{args.experiment}",
         "performance_baseline_blob": performance_blob,
         "source": source,
         "detached": True,

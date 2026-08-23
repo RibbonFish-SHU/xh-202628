@@ -1,16 +1,17 @@
 # Parallel Optimization Orchestration
 
-本手册把算子优化拆成“并行生产候选、串行提交 OJ”。目标是让 Subagent、NVIDIA proxy 和代码审计持续并行，同时保证 XPU-OJ 永远只有一个提交者和一个在途提交。
+本手册把算子优化拆成“并行生产候选、C500 单槽验证、串行提交 OJ”。目标是让 Subagent 和代码审计持续并行，由 Main Agent 调度唯一 C500 执行槽和唯一 XPU-OJ 提交通道。
 
 ## 不变量
 
 1. Main Agent 是唯一协调者，独占主工作树的 `main`、GitHub push、正式状态文件、浏览器和 XPU-OJ。
 2. 每个 Subagent 只在 Main Agent 创建的独立 branch/worktree 中工作，不能切换或修改 `main`。
-3. Main Agent 为每条 lane 分配唯一 batch/experiment/candidate、当前 `worktree_base_commit`、显式 `performance_baseline_commit` 和一个可证伪假设。任何 Agent 都不能把两种 baseline 混为一谈。
-4. Subagent 可以并行构建、测试并入队候选；只有 Main Agent 能把候选提升为 `ready`、claim OJ 槽位或改变提交记录。
-5. OJ 同时最多一个 active claim。终态结果必须先登记；`finalize` 随后释放槽位，用户报告延迟到人为打断或询问状态时汇总。
-6. 等待 OJ 或一个慢 lane 时，其他 lane 继续生产候选。第一个达到晋级门槛的候选可立即进入串行提交，不等待整批结束。
-7. NVIDIA 仅提供 `proxy/NVIDIA` 证据。远端最多 4 个并行 run，Main Agent 的 GPU 分配加 runner 的项目槽/GPU 锁是最终门禁；纯启动竞态使用下一 attempt，不烧掉 experiment 身份。
+3. 只有 Main Agent 能 spawn 或分派 Subagent/Auditor；Producer/Auditor 不得继续委派，以免绕过 experiment、worktree、机制 family 和槽位分配。
+4. Main Agent 为每条 lane 分配唯一 batch/experiment/candidate、当前 `worktree_base_commit`、显式 `performance_baseline_commit` 和一个可证伪假设。任何 Agent 都不能把两种 baseline 混为一谈。
+5. Subagent 可以并行构建、测试并入队候选；只有 Main Agent 能把候选提升为 `ready`、claim OJ 槽位或改变提交记录。
+6. OJ 同时最多一个 active claim。终态结果必须先登记；`finalize` 随后释放槽位，用户报告延迟到人为打断或询问状态时汇总。
+7. 等待 OJ 或一个慢 lane 时，其他 lane 继续生产候选。第一个达到晋级门槛的候选可立即进入串行提交，不等待整批结束。
+8. C500 最多 1 个 run。Main Agent 排定优先级，runner 的项目锁、无设备进程检查和 slice 配额核对是最终门禁；纯启动竞态使用下一 attempt，不烧掉 experiment 身份。新 NVIDIA run 已禁用。
 
 中心控制数据库位于 Git common directory 的 `.git/xh-202628/submission-control.sqlite3`。所有 linked worktree 共享它，但它不进入 Git。控制器拒绝自定义数据库或 linked-worktree mirror 路径；`state/submission-state.json` 始终指向 primary 工作树，只是 Main Agent 导出的受跟踪历史镜像。SQLite 是真源，镜像使用 digest 和 dirty 双门禁。
 
@@ -21,7 +22,7 @@
 | 分配 batch / experiment / candidate | 唯一负责 | 禁止自行分配 | 禁止 |
 | 创建 branch / worktree | 唯一负责 | 只使用已分配目录 | 只使用 detached audit worktree |
 | 修改候选源码并 commit | 可做 | 只在自己的 branch | 禁止 |
-| NVIDIA proxy run | 调度或执行 | 可在分配 lane 内执行 | 仅在任务明确要求时复核 |
+| C500 native run | 唯一调度并执行 | 只能提交测试请求与接收证据 | 仅在任务明确要求时复核 |
 | 写候选队列 | 可 | 仅 `candidate-enqueue` | 禁止 |
 | 写实验账本 | 唯一串行导入 | 禁止 | 禁止 |
 | 集成到 `main` / 更新正式状态 | 唯一负责 | 禁止 | 禁止 |
@@ -31,6 +32,10 @@
 | 向用户报告 OJ 结果 | 唯一负责 | 只向 Main Agent 交付技术结果 | 只向 Main Agent 交付审计发现 |
 
 Producer 和 Auditor 都不得修改 `state/PROJECT_STATE.md`、`state/experiments.jsonl`、`state/submission-state.json` 或任何正式提交账本。Producer 的持久交付物是候选 commit 和 `handoffs/<experiment-id>.md`；Auditor 直接向 Main Agent 返回只读 findings，不修改 producer handoff。
+
+## C500 迁移边界
+
+在 C500 工作流 commit 合入前已经创建的 lane 保持原 branch/worktree，不得由协调者强行改文件、rebase 或切换 baseline。它们可以自然完成源码和 handoff，但旧 NVIDIA evidence 不再满足 OJ 晋级门禁。Main Agent 在当前批次的安全检查点合入 C500 工作流；对仍值得保留的旧候选，从新的 workflow-bearing `main` 分配新 experiment/candidate，重放同一源码机制并完成 C500 paired gate。不得给旧 commit 补写不存在的 C500 证据，也不得因迁移复用旧 experiment ID。
 
 ## Main Agent 启动
 
@@ -80,7 +85,7 @@ Main Agent 先建立机制矩阵。每条 lane 至少写明：
 - 完整 40 位 `performance_baseline_commit`：正式最佳或明确选择的已测源码基线；其 submission source blob 必须与 worktree base 中的 blob 完全相同。
 - 一个目标 case、一个代码区域、一个机制 family 和一个可证伪假设。
 - 预计改变的 bytes、barrier、CTA、LDS、thread、occupancy 或指令路径。
-- 必做测试、proxy 证据边界、历史 denylist 和停止条件。
+- 必做 C500 gate、paired 收益门槛、历史 denylist 和停止条件。
 
 两条 lane 的 `target-case + code-region + mechanism-family` 不得有两个维度相同。同一家族连续两次目标无收益后关闭，除非获得新的硬件证据。不能把改名、无收益的指令挪动或已否决旋钮包装成新机制。
 
@@ -103,9 +108,9 @@ python scripts/parallel_worktree.py create `
 candidate/<batch>/<lane>-<experiment>
 ```
 
-创建前脚本先验证 worktree base 等于当前 `main`、包含 controller/runbook/templates，且它的 source blob 与 performance baseline 完全一致；因此历史正式最佳 commit 只用于性能归因，不直接作为 worktree checkout。随后使用 `refs/xh-202628/experiments/<experiment>` 原子预留实验 ID并固定到 worktree base。并发分配同一 ID 时恰好一个成功；失败或已使用的 reservation 永不删除和复用。GPU/slot 的纯启动竞态使用同一 experiment/commit 的下一 `-Attempt`，不另烧实验 ID。
+创建前脚本先验证 worktree base 等于当前 `main`、包含 controller/runbook/templates，且它的 source blob 与 performance baseline 完全一致；因此历史正式最佳 commit 只用于性能归因，不直接作为 worktree checkout。随后在同一个 Git ref 事务中创建 `refs/xh-202628/experiments/<experiment>` 和 `refs/xh-202628/baselines/<experiment>`，分别固定 workflow base 与 performance baseline。并发分配同一 ID 时恰好一个成功，不会留下只创建一半的 reservation；失败或已使用的 reservation 永不删除和复用。C500 slot 的纯启动竞态使用同一 experiment/commit 的下一 `-Attempt`，不另烧实验 ID。
 
-Main Agent 使用 `templates/subagent-task.md` 填充任务，并把精确 worktree、branch、base commit、GPU 分配和验收门槛交给一个 Subagent。不要让多个 Subagent 共享工作树，也不要让它们自行寻找“最新 baseline”。
+Main Agent 使用 `templates/subagent-task.md` 填充任务，并把精确 worktree、branch、base commit、C500 调度优先级和验收门槛交给一个 Subagent。不要让多个 Subagent 共享工作树，也不要让它们自行寻找“最新 baseline”。
 
 ## Subagent 交付
 
@@ -113,10 +118,10 @@ Subagent 在自己的 worktree 中完成一个候选：
 
 1. 核对当前 `HEAD` 与分配的 `worktree_base_commit` 完全相同；不要 checkout 历史 performance baseline，它的精确 source 已由创建器验证并带入。
 2. 只实现分配的单一假设；发现需要扩大机制或改变 baseline 时停止该 lane 并回报。
-3. 创建唯一 `remote-jobs/<experiment-id>.sh`，完成可用的 build、correctness、benchmark 和 regression。
-4. 需要 NVIDIA 时从自己的干净 worktree 调用 `scripts/invoke-remote-gpu-run.ps1`。只能使用 Main Agent 分配且实时空闲的 GPU；原始结果会集中写入 primary 的共享 ignored artifact root。
-5. 记录 `handoffs/<experiment-id>.md`，格式见 `templates/subagent-handoff.md`。
-6. 把源码、测试、remote job 和 handoff 一起 commit；保持工作树干净。
+3. 把 `templates/remote-job.sh` 原样复制为唯一 `remote-jobs/<experiment-id>.sh`；提交 candidate、job 和初版 handoff，保持 worktree 干净，然后把 exact candidate commit 交给 Main Agent 排队。不得自行连接 C500。
+4. Main Agent 从受信控制工作树调用 `scripts/invoke-c500-run.ps1`，显式传入 candidate commit、performance baseline、worktree base (`WorkflowCommit`) 和 submission source。调用器只把 candidate 的 submission source 与受信模板 job 叠加到固定 workflow harness。
+5. Main Agent 返回原始结果路径与验证结论；Producer 按 `templates/subagent-handoff.md` 补齐 C500 结果、环境/slice、source hash 和决定。该 metadata-only commit 不得改变已测 submission source 或 job blob。
+6. Producer 保持工作树干净，并在 handoff 同时记录 tested candidate commit 与最终 queue commit。
 7. 将候选写入共享队列：
 
 ```powershell
@@ -136,7 +141,7 @@ python skills/xpuoj-operator-optimizer/scripts/submission_controller.py `
   --evidence handoffs/exp-20260822-026.md
 ```
 
-`candidate-enqueue` 会再次验证 reservation、batch/lane 对应的 branch tip、worktree-base ancestry、worktree/performance baseline 的起始 source 相等、精确 `remote-jobs/<experiment>.sh`、精确 `handoffs/<experiment>.md` 和候选源码 SHA-256。队列位于共享数据库，因此不会弄脏任何 worktree。Subagent 随后只向 Main Agent 发送候选 commit、结论和风险，不写 tracked 实验账本，也不做 OJ 操作。
+`candidate-enqueue` 会再次验证 workflow/baseline 两个 reservation、batch/lane 对应的 branch tip、worktree-base ancestry、worktree/performance baseline 的起始 source 相等、精确 `remote-jobs/<experiment>.sh`、精确 `handoffs/<experiment>.md` 和候选源码 SHA-256。迁移前创建、且 base 中没有 `state/c500-execution.json` 的旧 lane 兼容单 reservation；新 C500 lane 缺少 baseline reservation 时一律拒绝。队列位于共享数据库，因此不会弄脏任何 worktree。Subagent 随后只向 Main Agent 发送候选 commit、结论和风险，不写 tracked 实验账本，也不做 OJ 操作。
 
 ## 独立 Auditor
 
@@ -152,7 +157,7 @@ python scripts/parallel_worktree.py audit-create `
   --source operators/fused_moe_i8_tn/cuda_maca/submission.cu
 ```
 
-脚本验证 audit commit 是已分配 candidate branch 的精确 tip，且派生自 reservation base。Main Agent 使用 `templates/auditor-task.md`；Auditor 不编辑 tracked 文件、不 commit、不 enqueue，也不接触 token、浏览器或 OJ，只返回有证据的 findings 和 `approve | reject | needs-fix`。
+脚本验证 audit commit 是已分配 candidate branch 的精确 tip，派生自 workflow reservation，且传入的 performance baseline 等于 baseline reservation。Main Agent 使用 `templates/auditor-task.md`；Auditor 不编辑 tracked 文件、不 commit、不 enqueue，也不接触 token、浏览器或 OJ，只返回有证据的 findings 和 `approve | reject | needs-fix`。
 
 ## Main Agent 晋级
 
@@ -163,7 +168,7 @@ python scripts/parallel_worktree.py audit-create `
 3. 检查历史 denylist、接口合同、地址覆盖、只读输入、同步、源码哈希和完整回归。
 4. 涉及 barrier、异步 intrinsic、LDS 复用或线程映射的候选，必须由另一个 Agent 独立审计后才能晋级。
 5. 要求结构性收益模型。一般应预计约 1% 或足以跨一个测试点分档；仅为获取必要目标反馈的诊断候选可以例外，但必须明确预算。
-6. NVIDIA 未执行 MACA 分支时，只把结果用于来源与 fallback 回归，不能据此判断目标性能。
+6. 检查 C500 ABBA 原始样本、两端 drift、MACA/MXCC、slice 和 source hash。小于约 1% 的收益至少需要两个独立 attempt 同方向；本地 absolute timing 不换算为 OJ 分数。
 
 通过后，Main Agent 把候选 commit 集成到最新 `main`。若 cherry-pick 无冲突且提交后的 source blob 与候选完全相同，可继续使用原 candidate；若解决冲突改变了提交源码，必须分配新 experiment/candidate 并重新测试，不能伪装成原候选。
 

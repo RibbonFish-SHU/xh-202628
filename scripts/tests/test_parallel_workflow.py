@@ -90,11 +90,18 @@ class RepositoryFixture:
         )
         required_workflow_files = (
             "AGENTS.md",
+            "runbooks/c500-execution.md",
             "runbooks/parallel-orchestration.md",
-            "scripts/invoke-remote-gpu-run.ps1",
+            "scripts/invoke-c500-run.ps1",
+            "scripts/c500-runner.sh",
+            "scripts/c500-stage.sh",
+            "scripts/run-c500-fused-moe-paired.sh",
+            "scripts/summarize-c500-abba.py",
             "scripts/parallel_worktree.py",
             "skills/xpuoj-operator-optimizer/SKILL.md",
             "skills/xpuoj-operator-optimizer/scripts/submission_controller.py",
+            "state/c500-execution.json",
+            "templates/remote-job.sh",
             "templates/subagent-handoff.md",
             "templates/subagent-task.md",
         )
@@ -187,8 +194,16 @@ class RepositoryFixture:
         batch = "batch-20260822-01"
         lane = f"lane-{experiment[-3:]}"
         reservation = f"refs/xh-202628/experiments/{experiment}"
+        baseline_reservation = f"refs/xh-202628/baselines/{experiment}"
         branch = f"candidate/{batch}/{lane}-{experiment}"
         run(["git", "update-ref", reservation, self.commit, "0" * 40], cwd=self.repo)
+        run(
+            [
+                "git", "update-ref", baseline_reservation,
+                self.performance_commit, "0" * 40,
+            ],
+            cwd=self.repo,
+        )
         run(["git", "branch", branch, self.commit], cwd=self.repo)
         return [
             "candidate-enqueue",
@@ -239,6 +254,21 @@ class SubmissionControllerTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.fixture.close()
+
+    def test_c500_enqueue_requires_reserved_baseline(self) -> None:
+        arguments = self.fixture.enqueue_arguments(
+            "cand-missing-baseline", "exp-20260822-115"
+        )
+        run(
+            [
+                "git", "update-ref", "-d",
+                "refs/xh-202628/baselines/exp-20260822-115",
+            ],
+            cwd=self.fixture.repo,
+        )
+        result = self.fixture.controller(*arguments, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing its immutable", result.stderr)
 
     def test_init_imports_legacy_pending_report_as_deferred(self) -> None:
         mirror = json.loads(self.fixture.mirror.read_text(encoding="utf-8"))
@@ -1279,6 +1309,31 @@ class ParallelWorktreeTests(unittest.TestCase):
                 run(["git", "branch", "--show-current"], cwd=fixture.repo).stdout.strip(),
                 "main",
             )
+            mismatched_audit = run(
+                [
+                    sys.executable,
+                    str(WORKTREE),
+                    "--repo",
+                    str(fixture.repo),
+                    "audit-create",
+                    "--batch",
+                    "batch-20260822-01",
+                    "--lane",
+                    "g2s-pipeline",
+                    "--experiment",
+                    "exp-20260822-999",
+                    "--candidate-commit",
+                    fixture.commit,
+                    "--performance-baseline-commit",
+                    fixture.commit,
+                    "--source",
+                    "operators/submission.cu",
+                ],
+                cwd=fixture.repo,
+                check=False,
+            )
+            self.assertNotEqual(mismatched_audit.returncode, 0)
+            self.assertIn("reserved baseline", mismatched_audit.stderr)
             audit_result = run(
                 [
                     sys.executable,
@@ -1380,6 +1435,15 @@ class ParallelWorktreeTests(unittest.TestCase):
                 cwd=fixture.repo,
             ).stdout.strip()
             self.assertEqual(reservation, fixture.commit)
+            baseline_reservation = run(
+                [
+                    "git",
+                    "rev-parse",
+                    "refs/xh-202628/baselines/exp-20260822-998",
+                ],
+                cwd=fixture.repo,
+            ).stdout.strip()
+            self.assertEqual(baseline_reservation, fixture.performance_commit)
         finally:
             fixture.close()
 
