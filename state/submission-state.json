@@ -1,5 +1,5 @@
 {
-  "pending_report": "123700",
+  "pending_report": null,
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -837,13 +837,14 @@
       "experiment": "exp-20260823-047",
       "id": "123700",
       "language": "CUDA Maca",
+      "message_ref": "user-status-20260823-02",
       "notes": "MXCC xcore1000 compiled; sample matched_ratio 0.130758 max_abs_diff 294.5; all four cases skipped; reject safe-six is_async=false BSM and restore formal best.",
       "operator": "Fused MoE i8 tn",
       "previous_score": "82.25",
       "rank": "25",
-      "report_summary": null,
-      "reported_at": null,
-      "reported_to_user": false,
+      "report_summary": "Wrong Answer 0; safe-six is_async=false BSM; sample failed and all scored cases skipped; reject and restore formal best.",
+      "reported_at": "2026-08-23T09:25:30+00:00",
+      "reported_to_user": true,
       "score": "0",
       "status": "Wrong Answer",
       "submitted_at": "2026-08-23T08:27:56+00:00",
