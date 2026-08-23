@@ -659,9 +659,16 @@ __global__ void fused_moe_i8_tn_mma_kernel(
                 packed_out[1],
                 reinterpret_cast<uint*>(&values)[2],
                 reinterpret_cast<uint*>(&values)[3]);
-            *reinterpret_cast<uint64_t*>(
-                out_base + static_cast<uint64_t>(output_row[i * 4 + j]) * n
-                + output_col[0]) = *reinterpret_cast<uint64_t*>(&packed_out);
+            __builtin_mxc_stg_b64_predicator(
+                out_base + static_cast<uint64_t>(output_row[i * 4 + j]) * n + output_col[0],
+                0,
+                *reinterpret_cast<uint64_t*>(&packed_out),
+                true,
+                false,
+                false,
+                (output_row[i * 4 + j] < em) && output_col_mask[0],
+                1,
+                MACA_ICMP_EQ);
 
             XH_CVT_F32_TO_BF16(
                 packed_out[0],
@@ -671,9 +678,16 @@ __global__ void fused_moe_i8_tn_mma_kernel(
                 packed_out[1],
                 reinterpret_cast<uint*>(&values)[6],
                 reinterpret_cast<uint*>(&values)[7]);
-            *reinterpret_cast<uint64_t*>(
-                out_base + static_cast<uint64_t>(output_row[i * 4 + j]) * n
-                + output_col[1]) = *reinterpret_cast<uint64_t*>(&packed_out);
+            __builtin_mxc_stg_b64_predicator(
+                out_base + static_cast<uint64_t>(output_row[i * 4 + j]) * n + output_col[1],
+                0,
+                *reinterpret_cast<uint64_t*>(&packed_out),
+                true,
+                false,
+                false,
+                (output_row[i * 4 + j] < em) && output_col_mask[1],
+                1,
+                MACA_ICMP_EQ);
         }
     }
 

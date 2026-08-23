@@ -870,6 +870,27 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T10:25:20+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123828"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-054-plain-b64-store",
+      "claim_id": "claim-e4d878950e3f4557a2b3044f10f3e7fb",
+      "commit": "87920886af3ee541182d937f6d398b4c5496d686",
+      "evidence": "artifacts/raw/xpuoj/123940",
+      "experiment": "exp-20260823-054",
+      "id": "123940",
+      "language": "CUDA Maca",
+      "message_ref": "user-status-20260823-exp054",
+      "notes": "Accepted 4/4; cases 83/73/89/83; user-kernel times 1017 us/8 ms/547 us/4135 us; plain aligned uint64_t stores did not improve target score; formal best remains #117114 at 82.25.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": "Accepted 4/4 at 82.00 rank 25; cases 83/73/89/83; rejected plain aligned uint64_t stores and restored formal best #117114 at 82.25.",
+      "reported_at": "2026-08-23T12:22:32+00:00",
+      "reported_to_user": true,
+      "score": "82.00",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T12:02:21+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123940"
     }
   ],
   "version": 2
