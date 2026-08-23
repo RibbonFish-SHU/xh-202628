@@ -1,6 +1,6 @@
-# Remote GPU Execution
+# Historical NVIDIA Execution
 
-本手册只适用于已初始化的 NVIDIA 执行镜像。初始化许可仍为 pending 时，停止并读取 `remote-bootstrap.md`。
+**已停用：不得启动新 NVIDIA run。** 本文件只用于恢复和解释已有历史结果；新实验读取 `c500-execution.md` 并使用 `scripts/invoke-c500-run.ps1`。`state/remote-execution.json` 的执行开关保持关闭。
 
 ## 前置条件
 

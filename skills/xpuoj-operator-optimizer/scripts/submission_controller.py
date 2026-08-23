@@ -81,6 +81,32 @@ def run_git(repo: Path, args: Sequence[str], *, text: bool = True) -> str | byte
     return process.stdout.strip() if text else process.stdout
 
 
+def optional_ref(repo: Path, ref: str) -> str | None:
+    process = subprocess.run(
+        ["git", "-C", str(repo), "show-ref", "--verify", "--quiet", ref],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if process.returncode == 1:
+        return None
+    if process.returncode != 0:
+        raise SystemExit(
+            f"git show-ref --verify --quiet {ref} failed: {process.stderr.strip()}"
+        )
+    return str(run_git(repo, ["rev-parse", "--verify", ref]))
+
+
+def git_object_exists(repo: Path, revision: str) -> bool:
+    return subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-e", revision],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    ).returncode == 0
+
+
 def resolve_repo(value: Path) -> Path:
     repo = value.resolve()
     top = Path(str(run_git(repo, ["rev-parse", "--show-toplevel"]))).resolve()
@@ -780,6 +806,22 @@ def command_candidate_enqueue(args: argparse.Namespace, connection: sqlite3.Conn
     if reservation != args.worktree_base_commit:
         raise SystemExit(
             "Experiment reservation does not match the assigned worktree base commit."
+        )
+    baseline_ref = f"refs/xh-202628/baselines/{args.experiment}"
+    baseline_reservation = optional_ref(args.repo, baseline_ref)
+    c500_allocation = git_object_exists(
+        args.repo, f"{args.worktree_base_commit}:state/c500-execution.json"
+    )
+    if c500_allocation and baseline_reservation is None:
+        raise SystemExit(
+            "C500 experiment is missing its immutable performance-baseline reservation."
+        )
+    if (
+        baseline_reservation is not None
+        and baseline_reservation != args.performance_baseline_commit
+    ):
+        raise SystemExit(
+            "Performance baseline does not match the experiment baseline reservation."
         )
     expected_branch = f"candidate/{args.batch}/{args.lane}-{args.experiment}"
     branch_tip = str(run_git(

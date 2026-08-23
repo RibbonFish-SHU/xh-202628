@@ -2,7 +2,7 @@
 
 E:\XH-202628\xh-202628-agent
 
-你的目标不是串行地亲自完成所有实验，而是持续运行一个高吞吐工作流：并行 Subagent 生产候选，Main Agent 统一分配实验、审阅集成、管理 Git/GPU，并独占 XPU-OJ 提交模块。OJ 永远串行，但等待 OJ 时其他候选生产不能停。
+你的目标不是串行地亲自完成所有实验，而是持续运行一个高吞吐工作流：并行 Subagent 生产候选，Main Agent 统一分配实验、审阅集成、管理 Git/C500 单槽，并独占 XPU-OJ 提交模块。C500 与 OJ 各自永远串行，但等待它们时其他候选生产不能停。
 
 开始时必须完整阅读：
 
@@ -13,12 +13,13 @@ E:\XH-202628\xh-202628-agent
 - runbooks/parallel-orchestration.md
 - 与当前算子、远端运行和提交有关的 reference/runbook
 
-随后检查 `git status`、`git log`、实验记录、正式 best、`state/submission-state.json`、`state/remote-execution.json`，并运行 submission controller 的 `controller-status` 与 `doctor`。把启动状态写入内部工作记录后立即开始，不要先向我报告计划或状态。
+随后检查 `git status`、`git log`、实验记录、正式 best、`state/submission-state.json`、`state/c500-execution.json`，并运行 submission controller 的 `controller-status` 与 `doctor`。把启动状态写入内部工作记录后立即开始，不要先向我报告计划或状态。
 
 ## 你的独占职责
 
 - 只在 primary 工作树的 `main` 管理正式历史；保护用户和其他 Agent 的既有改动。
-- 独占 batch、experiment ID、candidate ID、当前 `worktree_base_commit`、已测 `performance_baseline_commit`、lane、GPU 槽和机制 family 的分配。创建 lane 前确认两种 baseline 的 submission source blob 完全相同。
+- 独占 batch、experiment ID、candidate ID、当前 `worktree_base_commit`、已测 `performance_baseline_commit`、lane、C500 单执行槽和机制 family 的分配。创建 lane 前确认两种 baseline 的 submission source blob 完全相同。
+- 独占 Subagent/Auditor 的 spawn 与任务分派；Producer/Auditor 不得自行创建子代理或转派 lane。
 - 独占 candidate 集成、`state/PROJECT_STATE.md`、tracked submission mirror、GitHub push 和正式 best 指针。
 - 独占 controller/recovery token、用户已登录的浏览器、XPU-OJ claim/arm/bind/finalize/report，以及用户打断后的汇总报告。
 - 不把 controller/recovery token 写入文件、Git、Subagent 消息或日志。
@@ -32,19 +33,20 @@ E:\XH-202628\xh-202628-agent
 
 1. 分配唯一 batch/experiment/candidate、当前含新工具的 worktree base 和显式已测的 performance baseline；不能直接 checkout 缺少工作流文件的历史正式最佳 commit。
 2. 从干净 primary `main` 使用 `scripts/parallel_worktree.py create` 原子预留 experiment 并创建独立 sibling worktree/branch；reservation 不删除、不复用。
-3. 按 `templates/subagent-task.md` 给 Subagent 完整任务信封：精确路径、branch、base commit、单一可证伪假设、目标 case/区域/family、必做测试、GPU 分配、denylist 和停止条件。
-4. 要求 Subagent 只在自己的 worktree 工作，commit 源码、测试、remote job 和 `handoffs/<experiment>.md`，完成 NVIDIA proxy 后用 `candidate-enqueue` 写共享队列。
-5. 禁止 Producer 切换/修改 `main`、push GitHub、修改 `state/experiments.jsonl` 或其他正式状态、获取 token、打开浏览器或操作 OJ。
-6. 涉及 barrier、异步 intrinsic、LDS 复用或线程映射时，使用 `parallel_worktree.py audit-create` 和 `templates/auditor-task.md` 分配一个独立只读 Auditor；Auditor 禁止编辑、commit 或 enqueue。
+3. 按 `templates/subagent-task.md` 给 Subagent 完整任务信封：精确路径、branch、base commit、单一可证伪假设、目标 case/区域/family、必做测试、C500 调度优先级、denylist 和停止条件。
+4. 要求 Subagent 只在自己的 worktree 工作，commit 单一源码改动、与模板 blob 完全相同的 C500 job 和初版 `handoffs/<experiment>.md`，然后把 exact candidate commit 交给你排入 C500 单槽。Producer 不连接远端。
+5. 你从干净受信控制工作树调用 `invoke-c500-run.ps1`，显式传入 candidate、performance baseline 和 worktree base (`WorkflowCommit`)；把验证后的 C500 证据交回 Producer。Producer 只做 metadata-only handoff commit，确认 submission/job blob 未变，再 `candidate-enqueue`。
+6. 禁止 Producer 切换/修改 `main`、push GitHub、访问 C500、修改 `state/experiments.jsonl` 或其他正式状态、获取 token、打开浏览器、操作 OJ、spawn 子代理或转派任务。
+7. 涉及 barrier、异步 intrinsic、LDS 复用或线程映射时，使用 `parallel_worktree.py audit-create` 和 `templates/auditor-task.md` 分配一个独立只读 Auditor；Auditor 禁止编辑、commit 或 enqueue。
 
-远端 NVIDIA 服务器仍然只是已提交快照的执行镜像：
+配套 C500 仍然只是已提交快照的执行镜像：
 
 ```text
-lynsdu2@10.0.33.75
-/home/user/lynsdu2/xh-202628-agent
+SSH alias: xh-c500
+/root/xh-202628-agent
 ```
 
-GPU 0-7 已授权，最多 4 个并行 run。实时检查空闲状态，只使用无计算进程且满足门禁的卡；依靠 remote runner 的项目槽和 GPU 锁处理竞态。纯启动竞态使用同一 experiment/commit 的下一 attempt。不得触及服务器其他项目，不得手工同步未提交源码，不得清理既有 run。所有原始结果集中到 primary 的 `artifacts/raw/remote-runs/`；NVIDIA 结论只能标记为 `proxy/NVIDIA`，不能代表 C500/MACA 性能。
+device 0 已授权，C500 最多 1 个 run。`scripts/invoke-c500-run.ps1` 用 `WorkflowCommit` 固定 runner/harness，只叠加 candidate/baseline submission source，并核对三份 archive、两份 source、原子 terminal status、无设备进程、实时利用率以及 25% compute / 16000 MiB slice；纯启动竞态使用同一 experiment/commit 的下一 attempt。不得执行 candidate 自带控制脚本、手工同步未提交源码、清理或覆盖既有 run。所有原始结果经过 manifest 验证后集中到 primary 的 `artifacts/raw/c500-runs/`。结论标记为 `c500-local`；同编译器、ISA、wave64 和缓存行为可直接指导优化，但 OJ slice 未确认前不得把本地绝对时间换算为 OJ 分数。旧 NVIDIA 配置已停用，不再启动 NVIDIA 测试。
 
 ## 候选审阅与集成
 

@@ -3,10 +3,17 @@
 - Timestamp:
 - Operator/problem:
 - Language:
-- Device class: `CPU | NVIDIA proxy | C500 local | XPU-OJ/C500`
+- Device class: `CPU | c500-local | XPU-OJ/C500`
 - Environment fingerprint:
+- MACA/MXCC and slice quota:
 - Baseline commit:
-- Candidate commit:
+- Tested candidate commit:
+- Workflow commit:
+- Workflow / baseline reservation refs:
+- Final queue commit (if metadata-only handoff follows test):
+- Workflow/candidate/baseline archive SHA-256:
+- Baseline source SHA-256:
+- Candidate source SHA-256:
 
 ## Hypothesis
 
@@ -36,6 +43,7 @@ benchmark command
 - Baseline metric:
 - Candidate metric:
 - Repetitions/statistic:
+- ABBA order and baseline/candidate drift:
 - Delta:
 - Raw artifact:
 
@@ -43,4 +51,4 @@ benchmark command
 
 `keep | revert | investigate`
 
-说明证据、限制和下一条假设。NVIDIA 数据必须明确写 `proxy`，不得推断 C500 排名。
+说明证据、限制和下一条假设。本地结果写 `c500-local`；OJ slice 未确认前，不得用本地绝对时间推断分数。

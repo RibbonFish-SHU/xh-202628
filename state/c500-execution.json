@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "transport": {
+    "kind": "wsl-openssh-control-connection",
+    "ssh_alias": "xh-c500",
+    "batch_mode_required": true,
+    "credential_storage": "none"
+  },
+  "base_directory": "/root/xh-202628-agent",
+  "marker": {
+    "filename": ".xh-202628-c500-execution-mirror",
+    "value": "xh-202628-c500-execution-mirror-v1"
+  },
+  "directory_creation": {
+    "authorized": true,
+    "authorized_at": "2026-08-23",
+    "created": true,
+    "created_at": "2026-08-23",
+    "timestamp_precision": "date-only"
+  },
+  "execution": {
+    "enabled": true,
+    "controller_role": "main-agent-only",
+    "source_projection": "workflow-commit-plus-source-and-template-job",
+    "candidate_environment": "env-i-explicit-allowlist",
+    "candidate_privilege": "root",
+    "filesystem_isolation": "none",
+    "status_schema_version": 2,
+    "evidence_manifest_required": true,
+    "device_id": 0,
+    "max_parallel_runs": 1,
+    "max_start_utilization_percent": 5,
+    "max_start_vram_used_mib": 512,
+    "expected_compute_quota_percent": 25,
+    "expected_vram_quota_mib": 16000,
+    "max_run_seconds": 21600,
+    "max_remote_storage_gib": 100,
+    "retention_policy": "preserve-all-until-user-approves-cleanup"
+  },
+  "toolchain": {
+    "maca_path": "/opt/maca",
+    "cucc": "/opt/maca/tools/cu-bridge/bin/cucc",
+    "target": "xcore1000"
+  },
+  "observed_environment": {
+    "captured_at": "2026-08-23T10:55:15+08:00",
+    "board": "MetaX C500",
+    "maca_version": "3.7.1.5",
+    "mxcc_version": "1.0.0 (d9102a1572)",
+    "kernel_driver_version": "3.8.30",
+    "mx_smi_version": "2.3.1",
+    "compute_quota_percent": 25,
+    "vram_quota_mib": 16000,
+    "physical_vram_mib": 65536,
+    "wave_size": 64,
+    "cache_line_bytes": 128,
+    "l1_per_ap_kib": 32,
+    "l2_mib": 8,
+    "max_xcore_clock_mhz": 1600
+  }
+}
