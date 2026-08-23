@@ -66,6 +66,9 @@
 | Fused MoE host expert-sort POD 候选 | proxy-rejected | `exp-20260823-048` / `7a78dd759b39` 仅为 case 2 同步回传 1,024-byte expert IDs、稳定计数排序 256 个 M tile 并以 POD 传入不变的 `(1,32,256)` launch。proxy/NVIDIA build/correctness/regression 通过，但配对 full-call overhead median/p95 为 `337.5/4212 us`，超过明确的 `81 us` gate；不集成、不提交，关闭同步 host-sort family。 |
 | Fused MoE all-shape specialization 候选 | target-no-gain | `exp-20260823-049` / submitted `ed4c5d33820d` 为四个公开 shape 各发射固定 `<EM,N,K>` kernel 实例，保留 runtime fallback，且 matrix/shared/epilogue body、geometry、traffic、barrier 与 stores 不变。OJ `#123828` 4/4 Accepted、82.25 分（83、73、89、84；0.979、8.000、0.522、3.915 ms），排名仍 25；仅与正式最佳同分，决定拒绝 tie，活动源码已精确恢复 `8c519e6`。 |
 | Fused MoE widened output-store feasibility | rejected | `exp-20260823-050` 未改源码：官方材料只暴露 predicated b64 store，且现有每线程两条 b64 目标相距 128 bytes，不存在可直接合并的相邻 b128 pair；无合法 documented ABI 时关闭该 family。 |
+| Fused MoE allocation config cache feasibility | rejected | `exp-20260823-051` 未改源码：raw `(a,out)` tuple 没有 allocation generation/free hook，同地址复用会产生 stale-config ABA；且既有 exact-source proxy 测得正常单次 range query 仅约 `0.095 us`，远低于 `2 us` gate。关闭 pointer-only config cache。 |
+| Fused MoE B-load cache-policy feasibility | rejected | `exp-20260823-052` 未改源码：权威 MXMACA 文档逐项定义的 predicated b128 参数均非 cache control，plain b128 ABI 又未公开；不允许把未知 `-1`/boolean 当 cache hint 盲试，关闭该 family。 |
+| Fused MoE exact-shape argument elision | dependency-rejected | `exp-20260823-053` / tested `80c926c2ea40` 让 exp-049 四个 fixed launch 使用 empty carrier、runtime fallback 保留 12-byte dimensions；proxy/NVIDIA build/correctness/regression 通过。但它依赖的 exp-049 在 OJ `#123828` 只同分，协议禁止把 dependent change 叠加在 losing candidate 上；候选已拒绝，不集成、不提交。 |
 | C500 本地算力 | unavailable | 当前未提供 |
 | Agent OJ 提交次数 | 45 | 新增 `#123828` Accepted/82.25/exp-049；已登记并释放槽位，当前最佳仍为 `#117114` 的 82.25、实时排名 25 |
 | 待向用户报告的提交 | none | `#123828` 已于 2026-08-23 本次状态询问时完整汇总并标记 reported；槽位此前已释放 |
@@ -168,6 +171,12 @@
 46. `exp-20260823-049` / tested `6fe3b7194b38` / submitted controller commit `ed4c5d33820d` 只把 MACA MMA kernel 的 `EM/N/K` 变成可固定模板参数，并为四个公开 shape 分别 dispatch 到 exact 实例；runtime fallback、整个 matrix/shared/epilogue body、CTA/grid/tile、32 KiB LDS、traffic、MMA/LDG/LDS/STS 次序、barrier 和 stores 不变。物理 GPU 1 committed snapshot 通过 exact-best reconstruction、候选/基线 build、三组差分、四 fixed+四 fallback dispatch、公共 bounds/output/read-only 回归；proxy paired spread仅作为来源/fallback 证据。OJ `#123828` 在 xcore1000 编译并 4/4 Accepted，四点 `83/73/89/84`、显示时间 `0.979/8.000/0.522/3.915 ms`，总分 82.25、排名 25；与 `#117114` 正式最佳同分且 case 2 未跨档，决定 `revert`，活动源码已恢复最佳 blob `58c7b2418012303666a4d239974d7be7278a86f9` / LF SHA-256 `bed1887e257f7a513d4ba4db10d5e5ac88ccecf6377d24d4ca3f521fbd795b61`。
 
 47. `exp-20260823-050` 仅做 output-store feasibility：官方源码与已保存 intrinsic 材料只暴露 `__builtin_mxc_stg_b64_predicator`，未找到 documented predicated b128 global store；穷举 current 256-thread output mapping 又证明同线程两条 b64 store 相距 64 个 BF16（128 bytes），没有相邻 pair。该 family 在缺少 documented ABI 和另行证明的 value-owner remap 时关闭，源码未改、未运行 GPU/OJ。
+
+48. `exp-20260823-051` 仅做 allocation-derived config memoization feasibility：模型证明 raw `(a,out)` tuple 在 allocation free/reallocate 后可能以相同虚拟地址表示另一个 shape，而 ABI 没有 owner、generation、free callback 或 lifetime guarantee；lock/TLS 只能解决 publication，不能解决顺序 ABA。既有 exact-source proxy 又测得正常 A-primary query median 约 `94.5 ns`，理论最大节省超过 21 倍低于 `2 us` gate。源码未改、未运行 GPU/OJ，关闭 pointer-only cache。
+
+49. `exp-20260823-052` 仅做 B global-load cache-policy feasibility：权威 builtin guide 的 predicated b128 参数为 address/offset/return/streg/predicate/async/compare 控制，未暴露 cache policy；plain b128 signature 未公开，官方 Fused MoE 仅使用当前相同 tuple。盲改未知参数无法形成可审阅证据，源码未改、未运行 GPU/OJ，关闭该 family。
+
+50. `exp-20260823-053` / tested `80c926c2ea40` 只让 exp-049 四个 fixed-shape launch 通过 empty C++14 carrier 得到模板维度，runtime fallback 保留 12-byte/3-int carrier；static gate 反向重建 exact exp-049 source，kernel body、traffic、MMA/shared/barrier/geometry/epilogue/store 不变。物理 GPU 2 committed snapshot 通过候选/基线 build、三组差分、carrier arity/layout、dispatch、公共 bounds/output/read-only regression；NVIDIA 仅执行 fallback，paired deltas视为噪声。由于依赖的 exp-049 已由 `#123828` 证明只与正式最佳同分，协议禁止将该 dependent change 叠加到 losing candidate；候选在 OJ 前拒绝。
 
 ## NVIDIA 执行链路验证
 
