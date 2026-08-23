@@ -20,7 +20,7 @@
 | GitHub 仓库 | connected | `git@github.com:RibbonFish-SHU/xh-202628.git`，现有 `main` 初始提交已 fetch |
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
 | C500 原生工具链探针 | verified | 当前 Fused MoE harness 已用 CUCC/MXCC 为 xcore1000 编译；correctness 3/3、完整 regression 和 4 组 public benchmark 通过 |
-| C500 受信控制面 | implementation-complete | Main Agent 单槽；显式 workflow/candidate/baseline commit；archive/source hash；link 拒绝；原子 staging/status/recovery；严格 ABBA 与结果 manifest。本地 fixture 已通过，真实端到端 smoke 待本分支提交后执行 |
+| C500 受信控制面 | verified | Main Agent 单槽；显式 workflow/candidate/baseline commit；archive/source hash；link 拒绝；原子 staging/status/recovery；严格 ABBA 与结果 manifest。本地 fixture 和真实端到端 smoke 均已通过 |
 | Fused MoE 正确基线 | target-verified | `exp-20260818-004` / `b6e4272e9d8f` 已经 OJ `#116973` 验证 MXMACA 编译和 4/4 正确性；C500 得分仅 11，不能作为性能候选 |
 | Fused MoE MMA 基线 | target-verified | `exp-20260819-007` / `83fd3d26e95f` 已由 OJ `#117056` 验证 MXMACA 编译和 4/4 正确性；恢复官方 `grid_x=1` 调度后得分 81.75、排名 23，仅测试点 1 增加 1 分 |
 | Fused MoE wide-MMA 候选 | target-regressed | `exp-20260819-008` / `d24ad933e174` 经 OJ `#117079` 验证 4/4 正确但仅 79.25 分；prefill gate-up 从 73 降至 63，已由 `c2d5bcd` 恢复 81.75 分源码 |
@@ -80,6 +80,7 @@
 - 编译路径：设置 `MACA_PATH=/opt/maca` 和 `CUDA_PATH=/opt/maca/tools/cu-bridge`，使用 `/opt/maca/tools/cu-bridge/bin/cucc -O3 -std=c++17 -arch=sm_80 -lineinfo ... -lcuda`；实际 device target 为 xcore1000。
 - Profiler：`mcProfiler` 可用；当前未发现 `mcTracer`。
 - 解释边界：同机 paired 相对结果标记 `c500-local`；OJ slice 未确认前，本地 absolute timing 不等同 OJ timing/score。
+- 工作流 smoke：`exp-20260823-999-957f3423a4b7-a01` 在 commit `957f3423a4b7` 上成功；candidate/baseline 同源，MXCC 双构建、correctness 3/3、完整 regression、四 case 五样本 ABBA、源码/控制树完整性和结果 manifest 全部通过。原始证据位于忽略目录 `artifacts/raw/c500-runs/exp-20260823-999-957f3423a4b7-a01/`。
 
 ## 历史 NVIDIA 只读探测快照
 
