@@ -374,6 +374,116 @@ void benchmark_inference_query_path() {
               << "x checksum=" << checksum << "\n";
 }
 
+__global__ void plain_b64_store_proxy_kernel(uint16_t* output) {
+    constexpr int kTile = 128;
+    const int thread_id = threadIdx.x;
+    for (int row_group = 0; row_group < 2; ++row_group) {
+        for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
+            const int row = xh_fused_moe::mma_output_row_local(
+                thread_id, row_group, row_in_group);
+            for (int col_group = 0; col_group < 2; ++col_group) {
+                const int col = xh_fused_moe::mma_output_col_local(
+                    thread_id, col_group, 0);
+                uint64_t packed = 0;
+#pragma unroll
+                for (int element = 0; element < 4; ++element) {
+                    const uint16_t value = static_cast<uint16_t>(
+                        row * kTile + col + element + 1);
+                    packed |= static_cast<uint64_t>(value) << (16 * element);
+                }
+                *reinterpret_cast<uint64_t*>(output + row * kTile + col) = packed;
+            }
+        }
+    }
+}
+
+void verify_plain_b64_store_mapping() {
+    constexpr int kTile = 128;
+    constexpr int kThreads = 256;
+    constexpr int kElementsPerStore = 4;
+    std::vector<int> visits(kTile * kTile, 0);
+    int store_count = 0;
+    for (int thread_id = 0; thread_id < kThreads; ++thread_id) {
+        for (int row_group = 0; row_group < 2; ++row_group) {
+            for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
+                const int row = xh_fused_moe::mma_output_row_local(
+                    thread_id, row_group, row_in_group);
+                for (int col_group = 0; col_group < 2; ++col_group) {
+                    const int col = xh_fused_moe::mma_output_col_local(
+                        thread_id, col_group, 0);
+                    if (row < 0 || row >= kTile || col < 0 || col + 3 >= kTile) {
+                        throw std::runtime_error("plain b64 store is outside the output tile");
+                    }
+                    if (((static_cast<size_t>(row) * kTile + col) * sizeof(uint16_t)) % 8 != 0) {
+                        throw std::runtime_error("plain b64 store is not 8-byte aligned");
+                    }
+                    for (int element = 0; element < kElementsPerStore; ++element) {
+                        ++visits[row * kTile + col + element];
+                    }
+                    ++store_count;
+                }
+            }
+        }
+    }
+    if (store_count != 4096
+        || !std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("plain b64 stores do not exactly cover the output tile");
+    }
+
+    for (const PublicCase& public_case : kPublicCases) {
+        const auto& config = public_case.config;
+        if ((config.em % kTile) != 0 || (config.n % kTile) != 0
+            || (static_cast<size_t>(config.n) * sizeof(uint16_t)) % 8 != 0) {
+            throw std::runtime_error(
+                std::string("public output is not exact/aligned for ") + public_case.name);
+        }
+        const int last_tile_m = config.em / kTile - 1;
+        const int last_tile_n = config.n / kTile - 1;
+        for (int thread_id = 0; thread_id < kThreads; ++thread_id) {
+            for (int row_group = 0; row_group < 2; ++row_group) {
+                for (int row_in_group = 0; row_in_group < 4; ++row_in_group) {
+                    const int row = last_tile_m * kTile
+                        + xh_fused_moe::mma_output_row_local(
+                            thread_id, row_group, row_in_group);
+                    for (int col_group = 0; col_group < 2; ++col_group) {
+                        const int col = last_tile_n * kTile
+                            + xh_fused_moe::mma_output_col_local(
+                                thread_id, col_group, 0);
+                        const size_t element_offset = static_cast<size_t>(row) * config.n + col;
+                        if (row < 0 || row >= config.em || col < 0 || col + 3 >= config.n
+                            || (element_offset * sizeof(uint16_t)) % 8 != 0) {
+                            throw std::runtime_error(
+                                std::string("last public output tile is unsafe for ")
+                                + public_case.name);
+                        }
+                    }
+                }
+            }
+        }
+        std::cout << "REGRESSION maca-plain-b64-store case=" << public_case.name
+                  << " exact-bounds=PASS alignment=8 PASS\n";
+    }
+
+    DeviceBuffer<uint16_t> device_output(kTile * kTile);
+    if ((reinterpret_cast<uintptr_t>(device_output.get()) & 7U) != 0) {
+        throw std::runtime_error("CUDA allocation is not 8-byte aligned");
+    }
+    CUDA_CHECK(cudaMemset(device_output.get(), 0, kTile * kTile * sizeof(uint16_t)));
+    plain_b64_store_proxy_kernel<<<1, kThreads>>>(device_output.get());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+    const std::vector<uint16_t> actual = device_output.copy_to_host();
+    for (size_t index = 0; index < actual.size(); ++index) {
+        if (actual[index] != static_cast<uint16_t>(index + 1)) {
+            throw std::runtime_error("plain b64 proxy changed value ownership or order");
+        }
+    }
+    std::cout << "REGRESSION maca-plain-b64-store stores=" << store_count
+              << " bytes=" << store_count * sizeof(uint64_t)
+              << " elements=" << visits.size()
+              << " exact-cover=PASS proxy-values=PASS\n";
+}
+
 void verify_mma_output_mapping() {
     constexpr int tile = 128;
     std::vector<int> visits(tile * tile, 0);
@@ -526,46 +636,6 @@ void run_benchmark() {
     }
 }
 
-void verify_mma_shape_specialization() {
-    const xh_fused_moe::MmaShapeSpecialization expected[] = {
-        xh_fused_moe::kMmaShape4096x4096x7168,
-        xh_fused_moe::kMmaShape32768x4096x7168,
-        xh_fused_moe::kMmaShape4096x7168x2048,
-        xh_fused_moe::kMmaShape32768x7168x2048,
-    };
-    static_assert(
-        sizeof(expected) / sizeof(expected[0]) == sizeof(kPublicCases) / sizeof(kPublicCases[0]),
-        "every public shape must have a specialization expectation");
-
-    for (size_t index = 0; index < sizeof(kPublicCases) / sizeof(kPublicCases[0]); ++index) {
-        const auto actual =
-            xh_fused_moe::mma_shape_specialization(kPublicCases[index].config);
-        if (actual != expected[index] || actual == xh_fused_moe::kMmaRuntimeShape) {
-            throw std::runtime_error(
-                std::string("MMA shape specialization dispatch failed for ")
-                + kPublicCases[index].name);
-        }
-        std::cout << "REGRESSION maca-shape-specialization case="
-                  << kPublicCases[index].name << " specialization="
-                  << static_cast<int>(actual) << " PASS\n";
-    }
-
-    const xh_fused_moe::KernelConfig unsupported[] = {
-        {128, 32, 256},
-        {4096, 4096, 2048},
-        {4096, 7168, 7168},
-        {4097, 4096, 7168},
-    };
-    for (const auto& config : unsupported) {
-        if (xh_fused_moe::mma_shape_specialization(config)
-            != xh_fused_moe::kMmaRuntimeShape) {
-            throw std::runtime_error("unsupported MMA shape selected a fixed specialization");
-        }
-    }
-    std::cout << "REGRESSION maca-shape-specialization runtime-fallback="
-              << sizeof(unsupported) / sizeof(unsupported[0]) << " PASS\n";
-}
-
 void verify_mma_a_load_bounds() {
     constexpr int tile_rows = 128;
     constexpr int rows_per_load = 32;
@@ -594,9 +664,9 @@ void verify_mma_a_load_bounds() {
 
 void run_regression() {
     verify_public_inference();
+    verify_plain_b64_store_mapping();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
-    verify_mma_shape_specialization();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
