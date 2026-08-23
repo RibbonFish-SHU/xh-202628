@@ -526,6 +526,46 @@ void run_benchmark() {
     }
 }
 
+void verify_mma_shape_specialization() {
+    const xh_fused_moe::MmaShapeSpecialization expected[] = {
+        xh_fused_moe::kMmaShape4096x4096x7168,
+        xh_fused_moe::kMmaShape32768x4096x7168,
+        xh_fused_moe::kMmaShape4096x7168x2048,
+        xh_fused_moe::kMmaShape32768x7168x2048,
+    };
+    static_assert(
+        sizeof(expected) / sizeof(expected[0]) == sizeof(kPublicCases) / sizeof(kPublicCases[0]),
+        "every public shape must have a specialization expectation");
+
+    for (size_t index = 0; index < sizeof(kPublicCases) / sizeof(kPublicCases[0]); ++index) {
+        const auto actual =
+            xh_fused_moe::mma_shape_specialization(kPublicCases[index].config);
+        if (actual != expected[index] || actual == xh_fused_moe::kMmaRuntimeShape) {
+            throw std::runtime_error(
+                std::string("MMA shape specialization dispatch failed for ")
+                + kPublicCases[index].name);
+        }
+        std::cout << "REGRESSION maca-shape-specialization case="
+                  << kPublicCases[index].name << " specialization="
+                  << static_cast<int>(actual) << " PASS\n";
+    }
+
+    const xh_fused_moe::KernelConfig unsupported[] = {
+        {128, 32, 256},
+        {4096, 4096, 2048},
+        {4096, 7168, 7168},
+        {4097, 4096, 7168},
+    };
+    for (const auto& config : unsupported) {
+        if (xh_fused_moe::mma_shape_specialization(config)
+            != xh_fused_moe::kMmaRuntimeShape) {
+            throw std::runtime_error("unsupported MMA shape selected a fixed specialization");
+        }
+    }
+    std::cout << "REGRESSION maca-shape-specialization runtime-fallback="
+              << sizeof(unsupported) / sizeof(unsupported[0]) << " PASS\n";
+}
+
 void verify_mma_a_load_bounds() {
     constexpr int tile_rows = 128;
     constexpr int rows_per_load = 32;
@@ -556,6 +596,7 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_mma_shape_specialization();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
