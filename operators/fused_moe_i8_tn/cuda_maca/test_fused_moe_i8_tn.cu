@@ -552,111 +552,11 @@ void verify_mma_a_load_bounds() {
     }
 }
 
-void verify_mma_scale_b_wave_broadcast() {
-    constexpr int threads = 256;
-    constexpr int wave_size = 64;
-    constexpr int subgroup_width = 32;
-    constexpr int producer_lanes = 16;
-    constexpr int column_groups = 2;
-    constexpr int words_per_load = 4;
-    constexpr int vectors_per_tile = 128 / words_per_load;
-    uint32_t producer_bits[threads][column_groups * words_per_load] = {};
-    bool producer_initialized[threads][column_groups * words_per_load] = {};
-    int vector_visits[threads / subgroup_width][vectors_per_tile] = {};
-
-    for (int thread_id = 0; thread_id < threads; ++thread_id) {
-        const int lane = thread_id % wave_size;
-        const int subgroup_lane = lane & (subgroup_width - 1);
-        if (subgroup_lane >= producer_lanes) {
-            continue;
-        }
-        for (int group = 0; group < column_groups; ++group) {
-            const int output_col = xh_fused_moe::mma_output_col_local(
-                thread_id, group, 0);
-            ++vector_visits[thread_id / subgroup_width][output_col / words_per_load];
-            for (int word = 0; word < words_per_load; ++word) {
-                const int slot = group * words_per_load + word;
-                const uint32_t bits =
-                    0x3f000000U ^ (static_cast<uint32_t>(output_col + word) * 0x00010101U);
-                producer_bits[thread_id][slot] = bits;
-                producer_initialized[thread_id][slot] = true;
-            }
-        }
-    }
-
-    for (int subgroup = 0; subgroup < threads / subgroup_width; ++subgroup) {
-        for (int vector = 0; vector < vectors_per_tile; ++vector) {
-            if (vector_visits[subgroup][vector] != 1) {
-                throw std::runtime_error("scale-B producers do not cover 128 values exactly once");
-            }
-        }
-    }
-
-    constexpr int col_limits[] = {1, 63, 64, 65, 127, 128};
-    int peer_checks = 0;
-    int scalar_shuffles = 0;
-    for (int col_limit : col_limits) {
-        for (int thread_id = 0; thread_id < threads; ++thread_id) {
-            const int lane = thread_id % wave_size;
-            const int source_lane = lane & (producer_lanes - 1);
-            const int source_thread = (thread_id / subgroup_width) * subgroup_width + source_lane;
-            if ((source_thread / subgroup_width) != (thread_id / subgroup_width)
-                || (source_thread % subgroup_width) >= producer_lanes) {
-                throw std::runtime_error("scale-B shuffle source escaped its width-32 subgroup");
-            }
-            for (int group = 0; group < column_groups; ++group) {
-                const int baseline_col = xh_fused_moe::mma_output_col_local(
-                    thread_id, group, 0);
-                const int producer_col = xh_fused_moe::mma_output_col_local(
-                    source_thread, group, 0);
-                const bool baseline_mask = baseline_col < col_limit;
-                const bool producer_mask = producer_col < col_limit;
-                if (producer_col != baseline_col || producer_mask != baseline_mask) {
-                    throw std::runtime_error("scale-B peer address or predicate differs");
-                }
-                for (int word = 0; word < words_per_load; ++word) {
-                    const int slot = group * words_per_load + word;
-                    if (!producer_initialized[source_thread][slot]) {
-                        throw std::runtime_error("scale-B shuffle source is uninitialized");
-                    }
-                    const uint32_t baseline_bits =
-                        0x3f000000U
-                        ^ (static_cast<uint32_t>(baseline_col + word) * 0x00010101U);
-                    if (producer_bits[source_thread][slot] != baseline_bits) {
-                        throw std::runtime_error("scale-B broadcast changed float bits");
-                    }
-                    ++scalar_shuffles;
-                }
-                ++peer_checks;
-            }
-        }
-    }
-
-    const int baseline_loads = threads * column_groups;
-    const int producer_count = (threads / subgroup_width) * producer_lanes;
-    const int candidate_loads = producer_count * column_groups;
-    const int shuffles_per_cta = threads * column_groups * words_per_load;
-    if (baseline_loads != 512 || candidate_loads != 256
-        || shuffles_per_cta != 2048
-        || peer_checks != static_cast<int>(sizeof(col_limits) / sizeof(col_limits[0]))
-            * threads * column_groups
-        || scalar_shuffles != static_cast<int>(sizeof(col_limits) / sizeof(col_limits[0]))
-            * shuffles_per_cta) {
-        throw std::runtime_error("scale-B load or shuffle cardinality changed");
-    }
-
-    std::cout << "REGRESSION maca-scale-b-wave-broadcast width=32 producers=128 "
-              << "unique-values-per-subgroup=128 b128-loads=512->256 "
-              << "bytes=8192->4096 shuffles=2048 peers-and-predicates=PASS "
-              << "float-bits=PASS\n";
-}
-
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
-    verify_mma_scale_b_wave_broadcast();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 

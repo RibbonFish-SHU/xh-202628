@@ -750,6 +750,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T01:57:46+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123253"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-043-scaleb-wave-bcast",
+      "claim_id": "claim-9af8c568d339443da00b1e1774971a08",
+      "commit": "093081b30da7573048227882f043035ea641d39a",
+      "evidence": "artifacts/raw/xpuoj/123337",
+      "experiment": "exp-20260823-043",
+      "id": "123337",
+      "language": "CUDA Maca",
+      "notes": "4/4 target correctness; cases 83/73/88/83; user-kernel times 1.018/8.206/0.562/4.247 ms. Width-32 scale-B producer broadcast scored 0.50 below formal best; reject and restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T02:56:00+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123337"
     }
   ],
   "version": 2

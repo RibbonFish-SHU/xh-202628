@@ -595,38 +595,21 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         }
     }
 
-    const int scale_b_lane = lane & 31;
-    const int scale_b_source_lane = lane & 15;
-    const bool scale_b_producer = scale_b_lane < 16;
 #pragma unroll
     for (uint32_t i = 0; i < 2; ++i) {
-        if (scale_b_producer) {
-            const float* ptr =
-                scale_b_ptr + static_cast<uint64_t>(expert) * n
-                + tile_n * kMmaTileN + output_col[i];
-            col_scale[i] = __builtin_mxc_ldg_b128_predicator(
-                const_cast<float*>(ptr),
-                0,
-                true,
-                true,
-                false,
-                false,
-                output_col_mask[i],
-                1,
-                MACA_ICMP_EQ);
-        }
-    }
-#pragma unroll
-    for (uint32_t i = 0; i < 2; ++i) {
-#pragma unroll
-        for (uint32_t j = 0; j < 4; ++j) {
-            float scale_value = 0.0f;
-            if (scale_b_producer) {
-                scale_value = reinterpret_cast<float*>(&col_scale[i])[j];
-            }
-            reinterpret_cast<float*>(&col_scale[i])[j] = __shfl_sync(
-                0xffffffffu, scale_value, scale_b_source_lane, 32);
-        }
+        const float* ptr =
+            scale_b_ptr + static_cast<uint64_t>(expert) * n
+            + tile_n * kMmaTileN + output_col[i];
+        col_scale[i] = __builtin_mxc_ldg_b128_predicator(
+            const_cast<float*>(ptr),
+            0,
+            true,
+            true,
+            false,
+            false,
+            output_col_mask[i],
+            1,
+            MACA_ICMP_EQ);
     }
 
     MmaBfloat16* out_base =
