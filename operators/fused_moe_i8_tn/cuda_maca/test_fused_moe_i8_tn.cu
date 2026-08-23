@@ -526,26 +526,249 @@ void run_benchmark() {
     }
 }
 
+struct K64VectorIdentity {
+    int row;
+    int k_chunk;
+};
+
+void verify_mma_k64_fragment_mapping() {
+    constexpr int threads = 256;
+    constexpr int wave_size = 64;
+    constexpr int tile_rows = 128;
+    constexpr int k_chunks = 4;
+    constexpr int loads_per_thread = 2;
+    constexpr int vectors = tile_rows * k_chunks;
+    const K64VectorIdentity unset{-1, -1};
+    std::vector<K64VectorIdentity> shared_a(vectors, unset);
+    std::vector<K64VectorIdentity> shared_b(vectors, unset);
+    std::vector<int> global_a_visits(vectors, 0);
+    std::vector<int> global_b_visits(vectors, 0);
+    std::vector<int> shared_a_visits(vectors, 0);
+    std::vector<int> shared_b_visits(vectors, 0);
+
+    for (int tid = 0; tid < threads; ++tid) {
+        const int wave = tid / wave_size;
+        const int lane = tid % wave_size;
+        const int global_k_chunk = lane % k_chunks;
+        const int shared_k_chunk = ((tid / 4) + (tid % 4)) % k_chunks;
+        for (int load = 0; load < loads_per_thread; ++load) {
+            const int a_slot = lane / 4 + 16 * load;
+            const int global_a_row =
+                wave * 8 + (a_slot % 8) + 32 * (a_slot / 8);
+            const int shared_a_row = wave * 32 + a_slot;
+            const int global_a_index = global_a_row * k_chunks + global_k_chunk;
+            const int shared_a_index = shared_a_row * k_chunks + shared_k_chunk;
+            shared_a[shared_a_index] = {global_a_row, global_k_chunk};
+            ++global_a_visits[global_a_index];
+            ++shared_a_visits[shared_a_index];
+
+            const int b_slot = tid / 4;
+            const int global_b_row =
+                4 * (b_slot % 32) + b_slot / 32 + 2 * load;
+            const int shared_b_row = b_slot + 64 * load;
+            const int global_b_index = global_b_row * k_chunks + global_k_chunk;
+            const int shared_b_index = shared_b_row * k_chunks + shared_k_chunk;
+            shared_b[shared_b_index] = {global_b_row, global_k_chunk};
+            ++global_b_visits[global_b_index];
+            ++shared_b_visits[shared_b_index];
+        }
+    }
+
+    auto exact_cover = [](const std::vector<int>& visits) {
+        return std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; });
+    };
+    if (!exact_cover(global_a_visits) || !exact_cover(global_b_visits)
+        || !exact_cover(shared_a_visits) || !exact_cover(shared_b_visits)) {
+        throw std::runtime_error("K64 producer mapping is not a vector bijection");
+    }
+
+    int checked_a_words = 0;
+    int checked_b_words = 0;
+    for (int tid = 0; tid < threads; ++tid) {
+        const int wave = tid / wave_size;
+        const int lane = tid % wave_size;
+        const int lds_k_chunk = ((tid % 16) + lane / 16) % k_chunks;
+        for (int row_fragment = 0; row_fragment < 2; ++row_fragment) {
+            const int shared_row = (tid % 16) + wave * 32 + 16 * row_fragment;
+            const K64VectorIdentity actual =
+                shared_a[shared_row * k_chunks + lds_k_chunk];
+            const int expected_row =
+                wave * 8 + (shared_row % 8) + 32 * ((shared_row % 32) / 8);
+            if (actual.row != expected_row || actual.k_chunk != lane / 16) {
+                throw std::runtime_error("K64 A fragment identity mismatch");
+            }
+            for (int depth = 0; depth < 4; ++depth) {
+                const int actual_k = actual.k_chunk * 16 + depth * 4;
+                const int expected_k = (lane / 16) * 16 + depth * 4;
+                if (actual_k != expected_k) {
+                    throw std::runtime_error("K64 A fragment K-word mismatch");
+                }
+                ++checked_a_words;
+            }
+        }
+        for (int col_fragment = 0; col_fragment < 8; ++col_fragment) {
+            const int shared_row = (tid % 16) + 16 * col_fragment;
+            const K64VectorIdentity actual =
+                shared_b[shared_row * k_chunks + lds_k_chunk];
+            const int expected_row = 4 * (shared_row % 32) + shared_row / 32;
+            if (actual.row != expected_row || actual.k_chunk != lane / 16) {
+                throw std::runtime_error("K64 B fragment identity mismatch");
+            }
+            for (int depth = 0; depth < 4; ++depth) {
+                const int actual_k = actual.k_chunk * 16 + depth * 4;
+                const int expected_k = (lane / 16) * 16 + depth * 4;
+                if (actual_k != expected_k) {
+                    throw std::runtime_error("K64 B fragment K-word mismatch");
+                }
+                ++checked_b_words;
+            }
+        }
+    }
+    if (checked_a_words != 2048 || checked_b_words != 8192) {
+        throw std::runtime_error("K64 fragment cardinality mismatch");
+    }
+    std::cout << "REGRESSION maca-k64-fragment-mapping producer-vectors=1024"
+              << " A-words=" << checked_a_words << " B-words=" << checked_b_words
+              << " exact-cover=PASS\n";
+}
+
+void verify_mma_k64_pipeline_lifecycle() {
+    constexpr int threads = 256;
+    constexpr int a_rows = 2;
+    constexpr int b_cols = 8;
+    constexpr int depth = 4;
+    const int tile_counts[] = {1, 2, 32, 112};
+
+    for (int tiles : tile_counts) {
+        std::vector<int> a_frag_tile(threads * a_rows * depth, tiles - 1);
+        std::vector<int> b_frag_tile(threads * b_cols * depth, tiles - 1);
+        std::vector<int> a_uses(tiles * threads * a_rows * depth, 0);
+        std::vector<int> b_uses(tiles * threads * b_cols * depth, 0);
+        std::vector<int> tile_order;
+        int shared_tile = tiles - 1;
+        int barriers = 1;
+        int ldg_a_vectors = 2;
+        int ldg_b_vectors = 2;
+        int sts_a_vectors = 2;
+        int sts_b_vectors = 2;
+        int lds_a_vectors = 2;
+        int lds_b_vectors = 8;
+        int mma_instructions = 0;
+
+        auto consume = [&](int tile) {
+            for (int tid = 0; tid < threads; ++tid) {
+                for (int row = 0; row < a_rows; ++row) {
+                    for (int col = 0; col < b_cols; ++col) {
+                        for (int k_depth = 0; k_depth < depth; ++k_depth) {
+                            const int a_fragment = (tid * a_rows + row) * depth + k_depth;
+                            const int b_fragment = (tid * b_cols + col) * depth + k_depth;
+                            if (a_frag_tile[a_fragment] != tile
+                                || b_frag_tile[b_fragment] != tile) {
+                                throw std::runtime_error("K64 fragment used after overwrite");
+                            }
+                            const int a_key =
+                                ((tile * threads + tid) * a_rows + row) * depth + k_depth;
+                            const int b_key =
+                                ((tile * threads + tid) * b_cols + col) * depth + k_depth;
+                            ++a_uses[a_key];
+                            ++b_uses[b_key];
+                            ++mma_instructions;
+                        }
+                    }
+                }
+            }
+            tile_order.push_back(tile);
+        };
+
+        for (int next_tile = 0; next_tile < tiles - 1; ++next_tile) {
+            ++barriers;
+            ldg_a_vectors += 2;
+            ldg_b_vectors += 2;
+            consume(shared_tile);
+            shared_tile = next_tile;
+            sts_a_vectors += 2;
+            sts_b_vectors += 2;
+            ++barriers;
+            std::fill(a_frag_tile.begin(), a_frag_tile.end(), shared_tile);
+            std::fill(b_frag_tile.begin(), b_frag_tile.end(), shared_tile);
+            lds_a_vectors += 2;
+            lds_b_vectors += 8;
+        }
+        consume(shared_tile);
+
+        std::vector<int> expected_order;
+        expected_order.push_back(tiles - 1);
+        for (int tile = 0; tile < tiles - 1; ++tile) {
+            expected_order.push_back(tile);
+        }
+        if (tile_order != expected_order || barriers != 2 * tiles - 1
+            || ldg_a_vectors != 2 * tiles || ldg_b_vectors != 2 * tiles
+            || sts_a_vectors != 2 * tiles || sts_b_vectors != 2 * tiles
+            || lds_a_vectors != 2 * tiles || lds_b_vectors != 8 * tiles
+            || mma_instructions != threads * 64 * tiles
+            || !std::all_of(a_uses.begin(), a_uses.end(), [](int count) { return count == 8; })
+            || !std::all_of(b_uses.begin(), b_uses.end(), [](int count) { return count == 2; })) {
+            throw std::runtime_error("K64 pipeline lifecycle or traffic mismatch");
+        }
+        std::cout << "REGRESSION maca-k64-pipeline tiles=" << tiles
+                  << " barriers=" << barriers << " A-LDG/STS/LDS="
+                  << ldg_a_vectors << "/" << sts_a_vectors << "/" << lds_a_vectors
+                  << " B-LDG/STS/LDS=" << ldg_b_vectors << "/" << sts_b_vectors
+                  << "/" << lds_b_vectors << " MMA/thread="
+                  << mma_instructions / threads
+                  << " lifecycle=PASS\n";
+    }
+}
+
+void verify_mma_k64_public_traffic() {
+    constexpr int threads = 256;
+    constexpr int vector_bytes = 16;
+    for (const PublicCase& public_case : kPublicCases) {
+        const int k64_tiles = public_case.config.k / 64;
+        const int k128_tiles = public_case.config.k / 128;
+        const int k64_a_bytes = k64_tiles * threads * 2 * vector_bytes;
+        const int k64_b_bytes = k64_tiles * threads * 2 * vector_bytes;
+        const int baseline_a_bytes = k128_tiles * threads * 4 * vector_bytes;
+        const int baseline_b_bytes = k128_tiles * threads * 4 * vector_bytes;
+        const int k64_lds_bytes =
+            k64_tiles * threads * (2 + 8) * vector_bytes;
+        const int baseline_lds_bytes =
+            k128_tiles * threads * (4 + 16) * vector_bytes;
+        if (k64_a_bytes != baseline_a_bytes || k64_b_bytes != baseline_b_bytes
+            || k64_lds_bytes != baseline_lds_bytes
+            || 64 * k64_tiles != 128 * k128_tiles) {
+            throw std::runtime_error("K64 public traffic does not match K128 baseline");
+        }
+        std::cout << "REGRESSION maca-k64-traffic case=" << public_case.name
+                  << " shared-bytes=16384 K64-tiles=" << k64_tiles
+                  << " barriers=" << 2 * k64_tiles - 1
+                  << " baseline-barriers=" << 2 * k128_tiles - 1
+                  << " traffic-and-mma=UNCHANGED\n";
+    }
+}
+
 void verify_mma_a_load_bounds() {
     constexpr int tile_rows = 128;
-    constexpr int rows_per_load = 32;
-    constexpr int loads_per_thread = 4;
+    constexpr int loads_per_thread = 2;
     for (const PublicCase& public_case : kPublicCases) {
         if ((public_case.config.em % tile_rows) != 0
-            || (public_case.config.k % 128) != 0) {
+            || (public_case.config.k % 64) != 0) {
             throw std::runtime_error(
                 std::string("public shape is not exact-tile aligned for ") + public_case.name);
         }
         for (int thread_id = 0; thread_id < 256; ++thread_id) {
+            const int wave = thread_id / 64;
+            const int lane = thread_id % 64;
             for (int load = 0; load < loads_per_thread; ++load) {
-                const int local_row = thread_id / 8 + rows_per_load * load;
+                const int slot = lane / 4 + 16 * load;
+                const int local_row = wave * 8 + (slot % 8) + 32 * (slot / 8);
                 if (local_row < 0 || local_row >= tile_rows) {
                     throw std::runtime_error("MMA A load row is outside its exact tile");
                 }
             }
         }
         const int predicates_removed_per_thread =
-            loads_per_thread * (public_case.config.k / 128);
+            loads_per_thread * (public_case.config.k / 64);
         std::cout << "REGRESSION maca-a-load-bounds case=" << public_case.name
                   << " exact-rows=PASS predicates-removed-per-thread="
                   << predicates_removed_per_thread << "\n";
@@ -556,6 +779,9 @@ void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_mma_k64_fragment_mapping();
+    verify_mma_k64_pipeline_lifecycle();
+    verify_mma_k64_public_traffic();
     verify_mma_a_load_bounds();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
