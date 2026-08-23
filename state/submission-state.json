@@ -1,5 +1,5 @@
 {
-  "pending_report": "124541",
+  "pending_report": null,
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -963,13 +963,14 @@
       "experiment": "exp-20260824-067",
       "id": "124541",
       "language": "CUDA Maca",
+      "message_ref": "user-password-storage-interrupt-20260824",
       "notes": "4/4 Accepted; cases 83/74/89/84; tie with formal best #124509; reject tie and restore formal-best source",
       "operator": "Fused MoE i8 tn",
       "previous_score": "82.50",
       "rank": "23",
-      "report_summary": null,
-      "reported_at": null,
-      "reported_to_user": false,
+      "report_summary": "exp-067 commit 7520415ea5ff8bbe279df140a7d8ac2142483056: Accepted 82.50, rank 23, cases 83/74/89/84; tied formal best #124509, reject tie and restore adeb453 source; C500 non-case-2 improvements did not move OJ score; NVIDIA disabled.",
+      "reported_at": "2026-08-23T20:50:25+00:00",
+      "reported_to_user": true,
       "score": "82.50",
       "status": "Accepted",
       "submitted_at": "2026-08-23T20:29:02+00:00",
