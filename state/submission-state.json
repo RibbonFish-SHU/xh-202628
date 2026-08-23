@@ -933,6 +933,27 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T18:26:50+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/124456"
+    },
+    {
+      "candidate_id": "cand-exp-20260824-064-device-expert-sort",
+      "claim_id": "claim-04c88f177b5e457eb87b3507be3bf3c4",
+      "commit": "adeb4531ada7e6eb6ef250df84b7542002954236",
+      "evidence": "artifacts/raw/xpuoj/124509",
+      "experiment": "exp-20260824-064",
+      "id": "124509",
+      "language": "CUDA Maca",
+      "message_ref": "user-password-interrupt-20260824-exp064",
+      "notes": "Device-sorted 8M expert-cluster scheduling passed 4/4 at 83/74/89/84; score 82.50 exceeds formal best 82.25 and rank is 23.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "23",
+      "report_summary": "Accepted 82.50; device-sorted 8M expert-cluster scheduling; cases 83/74/89/84; new formal best, rank 23.",
+      "reported_at": "2026-08-23T19:49:11+00:00",
+      "reported_to_user": true,
+      "score": "82.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T19:40:32+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/124509"
     }
   ],
   "version": 2
