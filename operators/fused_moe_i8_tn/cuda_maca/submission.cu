@@ -561,7 +561,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     output_col_mask[0] = output_col[0] < col_limit;
     output_col_mask[1] = output_col[1] < col_limit;
 
-    float row_factor[2][4];
+    float weights[2][4];
+    float row_scale[2][4];
     MmaFloat4 col_scale[2];
 
 #pragma unroll
@@ -569,8 +570,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
         for (uint32_t j = 0; j < 4; ++j) {
             const int row = output_row[i * 4 + j];
-            float weight = 0.0f;
-            *reinterpret_cast<MmaInt1*>(&weight) =
+            *(reinterpret_cast<MmaInt1*>(&weights[i]) + j) =
                 __builtin_mxc_ldg_b32_predicator(
                     const_cast<float*>(moe_weights_ptr + row),
                     0,
@@ -581,7 +581,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
                     row,
                     em,
                     MACA_ICMP_SLT);
-            *(reinterpret_cast<MmaInt1*>(&row_factor[i]) + j) =
+            *(reinterpret_cast<MmaInt1*>(&row_scale[i]) + j) =
                 __builtin_mxc_ldg_b32_predicator(
                     const_cast<float*>(scale_a_ptr + row),
                     0,
@@ -592,7 +592,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
                     row,
                     em,
                     MACA_ICMP_SLT);
-            row_factor[i][j] *= weight;
         }
     }
 
@@ -632,7 +631,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
             values[6] = output[i * 8 + 2 * j + 1][2];
             values[7] = output[i * 8 + 2 * j + 1][3];
 
-            MmaFloat2 row_scale2 = {row_factor[i][j], row_factor[i][j]};
+            row_scale[i][j] *= weights[i][j];
+            MmaFloat2 row_scale2 = {row_scale[i][j], row_scale[i][j]};
             MmaFloat2 scales[4];
             scales[0] = __builtin_mxc_pk_fma_f32(
                 reinterpret_cast<MmaFloat2*>(&col_scale[0])[0], row_scale2, zero2);

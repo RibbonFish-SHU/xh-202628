@@ -670,6 +670,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-22T23:27:50+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123033"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-039-row-factor-fuse",
+      "claim_id": "claim-3343cfffe51643629eb445e4be1bb8e4",
+      "commit": "d4bcc4600fb54a8415fa9d86fead78918ec745ca",
+      "evidence": "artifacts/raw/xpuoj/123095",
+      "experiment": "exp-20260823-039",
+      "id": "123095",
+      "language": "CUDA Maca",
+      "notes": "Row-factor scalar fusion preserved 4/4 correctness and tied formal best at 82.25; cases 83/73/89/84, times 999us/8.106ms/542us/4.117ms; reject tie and restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "82.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T00:21:07+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123095"
     }
   ],
   "version": 2

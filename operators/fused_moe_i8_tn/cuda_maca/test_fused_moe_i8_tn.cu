@@ -552,89 +552,11 @@ void verify_mma_a_load_bounds() {
     }
 }
 
-void verify_mma_row_factor_fusion() {
-    constexpr int threads = 256;
-    constexpr int row_groups = 2;
-    constexpr int rows_per_group = 4;
-    constexpr int tile_rows = 128;
-    constexpr int metadata_loads_per_row = 2;
-    std::vector<int> row_visits(tile_rows, 0);
-    std::vector<float> scale_a(tile_rows);
-    std::vector<float> moe_weights(tile_rows);
-
-    for (int row = 0; row < tile_rows; ++row) {
-        scale_a[row] = std::ldexp(static_cast<float>((row % 31) - 15), (row % 7) - 9);
-        moe_weights[row] = std::ldexp(static_cast<float>((row % 19) - 9), (row % 5) - 7);
-    }
-    scale_a[0] = 0.0f;
-    moe_weights[0] = -3.5f;
-    scale_a[1] = -0.0f;
-    moe_weights[1] = 2.0f;
-
-    int consumers = 0;
-    for (int thread_id = 0; thread_id < threads; ++thread_id) {
-        for (int i = 0; i < row_groups; ++i) {
-            for (int j = 0; j < rows_per_group; ++j) {
-                const int row = xh_fused_moe::mma_output_row_local(thread_id, i, j);
-                if (row < 0 || row >= tile_rows) {
-                    throw std::runtime_error("row-factor fusion address is outside the tile");
-                }
-                ++row_visits[row];
-
-                float baseline_factor = scale_a[row];
-                baseline_factor *= moe_weights[row];
-                const float scalar_weight = moe_weights[row];
-                float fused_factor = scale_a[row];
-                fused_factor *= scalar_weight;
-                uint32_t baseline_bits = 0;
-                uint32_t fused_bits = 0;
-                std::memcpy(&baseline_bits, &baseline_factor, sizeof(baseline_bits));
-                std::memcpy(&fused_bits, &fused_factor, sizeof(fused_bits));
-                if (baseline_bits != fused_bits) {
-                    throw std::runtime_error("row-factor fusion changed multiplication bits");
-                }
-                ++consumers;
-            }
-        }
-    }
-    if (consumers != threads * row_groups * rows_per_group
-        || !std::all_of(
-            row_visits.begin(), row_visits.end(), [](int count) { return count == 16; })) {
-        throw std::runtime_error("row-factor fusion changed row coverage");
-    }
-
-    for (const PublicCase& public_case : kPublicCases) {
-        if ((public_case.config.em % tile_rows) != 0) {
-            throw std::runtime_error("public row count is not exact-tile aligned");
-        }
-        for (int row_base = 0; row_base < public_case.config.em; row_base += tile_rows) {
-            for (int local_row = 0; local_row < tile_rows; ++local_row) {
-                const int row = row_base + local_row;
-                if (row < 0 || row >= public_case.config.em) {
-                    throw std::runtime_error("public row-factor address is out of bounds");
-                }
-            }
-        }
-    }
-
-    constexpr int row_values = row_groups * rows_per_group;
-    constexpr int metadata_loads = row_values * metadata_loads_per_row;
-    constexpr int multiplies = row_values;
-    static_assert(row_values == 8, "row-factor value count changed");
-    static_assert(metadata_loads == 16, "row metadata load count changed");
-    static_assert(multiplies == 8, "row-factor multiply count changed");
-    std::cout << "REGRESSION maca-row-factor-fusion rows/thread=" << row_values
-              << " b32-loads/thread=" << metadata_loads
-              << " multiplies/thread=" << multiplies
-              << " scalar-weight-temporary=1 exact-factor-bits=PASS\n";
-}
-
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
-    verify_mma_row_factor_fusion();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
