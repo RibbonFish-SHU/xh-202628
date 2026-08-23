@@ -21,6 +21,7 @@
 | GitHub 认证 | complete | 本机 SSH 身份为 `RibbonFish-SHU`；GitHub 主机键按官方 Ed25519 指纹核验 |
 | C500 原生工具链探针 | verified | 当前 Fused MoE harness 已用 CUCC/MXCC 为 xcore1000 编译；correctness 3/3、完整 regression 和 4 组 public benchmark 通过 |
 | C500 受信控制面 | verified | Main Agent 单槽；显式 workflow/candidate/baseline commit；archive/source hash；link 拒绝；原子 staging/status/recovery；严格 ABBA 与结果 manifest。本地 fixture 和真实端到端 smoke 均已通过 |
+| C500 正式最佳 profiler | verified | `formal-best-public-bottleneck-20260823-a04` 成功分析 exact formal-best binary；case 2 无 LDS bank conflict，主要目标证据为 VLS pipeline stall 与高全局读延迟，后续只做 profiler/codegen 驱动的访存延迟隐藏实验 |
 | Fused MoE 正确基线 | target-verified | `exp-20260818-004` / `b6e4272e9d8f` 已经 OJ `#116973` 验证 MXMACA 编译和 4/4 正确性；C500 得分仅 11，不能作为性能候选 |
 | Fused MoE MMA 基线 | target-verified | `exp-20260819-007` / `83fd3d26e95f` 已由 OJ `#117056` 验证 MXMACA 编译和 4/4 正确性；恢复官方 `grid_x=1` 调度后得分 81.75、排名 23，仅测试点 1 增加 1 分 |
 | Fused MoE wide-MMA 候选 | target-regressed | `exp-20260819-008` / `d24ad933e174` 经 OJ `#117079` 验证 4/4 正确但仅 79.25 分；prefill gate-up 从 73 降至 63，已由 `c2d5bcd` 恢复 81.75 分源码 |
@@ -91,6 +92,7 @@
 - 硬件模型：wave64、128-byte cache line、32 KiB L1/AP、8 MiB L2、最高 xcore clock 1600 MHz。
 - 编译路径：设置 `MACA_PATH=/opt/maca` 和 `CUDA_PATH=/opt/maca/tools/cu-bridge`，使用 `/opt/maca/tools/cu-bridge/bin/cucc -O3 -std=c++17 -arch=sm_80 -lineinfo ... -lcuda`；实际 device target 为 xcore1000。
 - Profiler：`mcProfiler` 可用；当前未发现 `mcTracer`。
+- 正式最佳 profiler：`formal-best-public-bottleneck-20260823-a04` 使用 exp-059 baseline arm 中 exact `8c519e6c1bb5` binary，远端结果为 `profiles/formal-best-public-bottleneck-20260823-a04/output20260823155930`，本地忽略副本位于 `artifacts/raw/c500-profiles/formal-best-public-bottleneck-20260823-a04/`。编号 `13..18` 对应 case 2；代表文件 13 记录 8,192 workgroups / 32,768 waves、AP busy 53.05%、平均 wave lifetime 53,467 cycles、global read 8,680,463,200 bytes / 15,126,360 instructions、VL1/L2 hit 87.80%/42.07%、DNOC read latency 281.61、MMA/MTE/L2 duty 48.64%/10.55%/27.33%，以及 `vls_pipeline_stall=520,584,990`、`wsm_stall=131,766,513`。shared efficiency 为 100%、conflict cycles 为 0，排除 LDS bank conflict 作为 case-2 主因；证据指向 vector load/store pipeline 和 memory-latency overlap，但不能单凭该 profile 断言纯带宽瓶颈。Profiler 会扰动 wall time，不作为配对计时证据。
 - 解释边界：同机 paired 相对结果标记 `c500-local`；OJ slice 未确认前，本地 absolute timing 不等同 OJ timing/score。
 - 工作流 smoke：`exp-20260823-999-957f3423a4b7-a01` 在 commit `957f3423a4b7` 上成功；candidate/baseline 同源，MXCC 双构建、correctness 3/3、完整 regression、四 case 五样本 ABBA、源码/控制树完整性和结果 manifest 全部通过。原始证据位于忽略目录 `artifacts/raw/c500-runs/exp-20260823-999-957f3423a4b7-a01/`。
 
@@ -198,6 +200,8 @@
 51. `exp-20260823-055` / tested `7b9dc6e9dd17` / submitted controller commit `1cf939603ff6` 保持 formal-best matrix/shared/epilogue、16 个 metadata b32 load、地址、字节、算术、geometry、barrier、stores 和 NVIDIA fallback 不变，只把两个 unrolled row-metadata load 表达式从 predicated 改为 ordinary documented b32 form。物理 GPU 1 committed snapshot 通过 exact baseline reconstruction、CUDA 12.2 build、三组差分、every-tile row bounds/address/value、16-hit coverage、traffic 和 read-only regression；proxy paired medians只作来源/fallback 证据。OJ `#123981` 在 xcore1000 编译并 4/4 Accepted，四点 `83/73/88/83`、显示时间 `1.020/8.000/0.552/4.143 ms`，总分 81.75、排名 25；相对正式最佳低 0.50，普通 b32 lowering 没有收益，决定 `revert`，活动源码已恢复最佳 blob `58c7b2418012303666a4d239974d7be7278a86f9` / LF SHA-256 `bed1887e257f7a513d4ba4db10d5e5ac88ccecf6377d24d4ca3f521fbd795b61`。
 
 52. `exp-20260823-058` 的 output-scratch expert-pairing 源码在 C500 workflow 合入后迁移为 `exp-20260823-059` / tested `416d6e92a56b` / queue tip `dc51495e1dc2`，source blob 保持 `686a676e79f97cbba5b7f8f6ccfab1c759c0ef3e` 不变。MetaX C500/xcore1000 build、correctness、regression、warmup、四 case 五 sample ABBA 和 31-entry manifest 全部通过；paired medians 为 `1.090 -> 1.085`、`8.213 -> 8.4515`、`0.5675 -> 0.5665`、`4.196 -> 4.177 ms`。唯一目标 case 2 明确回退 `2.904%`，其余变化均小于 `0.5%`；决定 `revert`、不提交 OJ，并关闭 output-scratch expert-pairing family。下一轮只在 C500 上，以 profiler/codegen 证据选择 case-2 的 MMA、HBM/L2、LDS/barrier 或 occupancy 瓶颈，不再进行 NVIDIA 测试。
+
+53. `formal-best-public-bottleneck-20260823-a04` 对 exp-059 baseline arm 中 exact formal-best binary 做独立 `mcProfiler` 诊断。profile 的 kernel 文件映射为 `4..9` decode gate-up、`13..18` prefill gate-up、`22..27` decode down；采集在 prefill-down 前结束。case-2 代表 pass 的 shared efficiency 为 100%、conflict cycles 为 0，否决“LDS bank conflict 是主瓶颈”；同时 `vls_pipeline_stall` 显著高于 `wsm_stall`，DNOC read latency 为 281.61，L2 hit 42.07%，MMA duty 48.64%，将后续假设收敛到全局 load 延迟隐藏、VLS pipeline 压力和对应目标 codegen/register scheduling。a01 至 a03 分别因命令构造、profiler 注入旧 `libstdc++`、隔离 binary 缺少相对 `tools/` 数据失败；a04 复制 profiler/config/tools 到批准镜像并清除继承 `LD_LIBRARY_PATH` 后成功。所有 attempt 与远端 `/opt/mcProfiler-ubuntu18.04/output20260823155701` 均按保留策略不清理。
 
 ## NVIDIA 执行链路验证
 
