@@ -544,6 +544,248 @@ void verify_mma_grid_mapping() {
     }
 }
 
+std::vector<int32_t> output_scratch_sort_map(
+    const std::vector<int32_t>& experts
+) {
+    if (experts.empty() || experts.size() > xh_fused_moe::kOutputScratchSortTiles) {
+        throw std::runtime_error("output scratch sort tile count is invalid");
+    }
+
+    std::vector<int32_t> map(experts.size(), -1);
+    for (int logical_tile = 0; logical_tile < static_cast<int>(experts.size()); ++logical_tile) {
+        const int rank = xh_fused_moe::output_scratch_stable_sort_rank(
+            experts.data(), logical_tile, static_cast<int>(experts.size()));
+        if (rank < 0 || rank >= static_cast<int>(experts.size()) || map[rank] != -1) {
+            throw std::runtime_error("output scratch sort rank is not a bijection");
+        }
+        map[rank] = logical_tile;
+    }
+    return map;
+}
+
+void verify_output_scratch_sort_pattern(const std::vector<int32_t>& experts) {
+    for (int expert : experts) {
+        if (expert < 0 || expert >= 256) {
+            throw std::runtime_error("expert id is outside [0,255]");
+        }
+    }
+    const std::vector<int32_t> map = output_scratch_sort_map(experts);
+    if (map[0] != 0) {
+        throw std::runtime_error("output scratch sort did not reserve logical tile zero");
+    }
+
+    std::vector<int32_t> reference;
+    for (int logical_tile = 1; logical_tile < static_cast<int>(experts.size()); ++logical_tile) {
+        reference.push_back(logical_tile);
+    }
+    std::sort(reference.begin(), reference.end(), [&](int lhs, int rhs) {
+        return experts[lhs] < experts[rhs]
+            || (experts[lhs] == experts[rhs] && lhs < rhs);
+    });
+    for (int physical_tile = 1; physical_tile < static_cast<int>(experts.size()); ++physical_tile) {
+        if (map[physical_tile] != reference[physical_tile - 1]) {
+            throw std::runtime_error("output scratch sort differs from stable reference order");
+        }
+    }
+
+    int sorted_position = 1;
+    for (int expert = 0; expert < 256; ++expert) {
+        int expert_count = 0;
+        for (int logical_tile = 1; logical_tile < static_cast<int>(experts.size()); ++logical_tile) {
+            expert_count += experts[logical_tile] == expert;
+        }
+        for (int offset = 0; offset < expert_count; ++offset) {
+            if (experts[map[sorted_position + offset]] != expert) {
+                throw std::runtime_error("sorted expert interval or count is incorrect");
+            }
+        }
+        sorted_position += expert_count;
+    }
+    if (sorted_position != static_cast<int>(experts.size())) {
+        throw std::runtime_error("sorted expert counts do not cover every nonzero tile");
+    }
+
+    constexpr int n_tiles = 32;
+    std::vector<int> visits(experts.size() * n_tiles, 0);
+    const int grid_z = (static_cast<int>(experts.size())
+        + xh_fused_moe::kOutputScratchSortGridM - 1)
+        / xh_fused_moe::kOutputScratchSortGridM;
+    for (int cluster = 0; cluster < grid_z; ++cluster) {
+        for (int x = 0; x < xh_fused_moe::kOutputScratchSortGridM; ++x) {
+            const int physical_tile = x
+                + cluster * xh_fused_moe::kOutputScratchSortGridM;
+            if (physical_tile == 0 || physical_tile >= static_cast<int>(experts.size())) {
+                continue;
+            }
+            const int logical_tile = map[physical_tile];
+            for (int tile_n = 0; tile_n < n_tiles; ++tile_n) {
+                ++visits[static_cast<size_t>(logical_tile) * n_tiles + tile_n];
+            }
+        }
+    }
+    for (int tile_n = 0; tile_n < n_tiles; ++tile_n) {
+        ++visits[tile_n];
+    }
+    if (!std::all_of(visits.begin(), visits.end(), [](int count) { return count == 1; })) {
+        throw std::runtime_error("output scratch sort does not cover every M/N tile exactly once");
+    }
+}
+
+void enumerate_output_scratch_sort_patterns(
+    std::vector<int32_t>* experts,
+    int logical_tile,
+    uint64_t* pattern_count
+) {
+    if (logical_tile == static_cast<int>(experts->size())) {
+        verify_output_scratch_sort_pattern(*experts);
+        ++*pattern_count;
+        return;
+    }
+    for (int expert = 0; expert < 3; ++expert) {
+        (*experts)[logical_tile] = expert;
+        enumerate_output_scratch_sort_patterns(experts, logical_tile + 1, pattern_count);
+    }
+}
+
+std::vector<int32_t> output_scratch_sort_experts(const std::string& pattern) {
+    std::vector<int32_t> experts(xh_fused_moe::kOutputScratchSortTiles);
+    for (int tile = 0; tile < static_cast<int>(experts.size()); ++tile) {
+        if (pattern == "all-same") {
+            experts[tile] = 7;
+        } else if (pattern == "all-unique") {
+            experts[tile] = (tile * 73) % 256;
+        } else {
+            experts[tile] = (tile * tile + 3 * tile) % 16;
+        }
+    }
+    return experts;
+}
+
+void verify_output_scratch_sort_device_map(
+    const std::vector<int32_t>& experts,
+    const char* pattern
+) {
+    DeviceBuffer<int32_t> device_experts(experts.size());
+    DeviceBuffer<int32_t> device_map(experts.size());
+    device_experts.copy_from(experts);
+    CUDA_CHECK(cudaMemset(device_map.get(), 0xff, experts.size() * sizeof(int32_t)));
+    xh_fused_moe::build_output_scratch_expert_sort_map_kernel
+        <<<1, xh_fused_moe::kOutputScratchSortTiles>>>(
+            device_experts.get(),
+            reinterpret_cast<__nv_bfloat16*>(device_map.get()));
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+    if (device_map.copy_to_host() != output_scratch_sort_map(experts)) {
+        throw std::runtime_error(std::string("device stable sort map mismatch for ") + pattern);
+    }
+    if (device_experts.copy_to_host() != experts) {
+        throw std::runtime_error(std::string("stable sort mutated expert ids for ") + pattern);
+    }
+}
+
+void verify_output_scratch_sort_structure() {
+    uint64_t exhaustive_patterns = 0;
+    for (int tile_count = 1; tile_count <= 8; ++tile_count) {
+        std::vector<int32_t> experts(tile_count, 0);
+        enumerate_output_scratch_sort_patterns(&experts, 1, &exhaustive_patterns);
+    }
+    if (exhaustive_patterns != 3280) {
+        throw std::runtime_error("output scratch exhaustive pattern count changed");
+    }
+
+    const std::vector<std::string> patterns = {"all-same", "all-unique", "skewed"};
+    for (const std::string& pattern : patterns) {
+        const std::vector<int32_t> experts = output_scratch_sort_experts(pattern);
+        verify_output_scratch_sort_pattern(experts);
+        verify_output_scratch_sort_device_map(experts, pattern.c_str());
+    }
+
+    const std::vector<int32_t> all_same = output_scratch_sort_experts("all-same");
+    const std::vector<int32_t> all_same_map = output_scratch_sort_map(all_same);
+    for (int tile = 0; tile < static_cast<int>(all_same_map.size()); ++tile) {
+        if (all_same_map[tile] != tile) {
+            throw std::runtime_error("all-same stable order changed");
+        }
+    }
+    const std::vector<int32_t> skewed = output_scratch_sort_experts("skewed");
+    const std::vector<int32_t> skewed_map = output_scratch_sort_map(skewed);
+    for (int expert = 0; expert < 16; ++expert) {
+        int count = 0;
+        for (int tile = 1; tile < static_cast<int>(skewed.size()); ++tile) {
+            count += skewed[tile] == expert;
+        }
+        const int expected_count = expert == 0 ? 31 : ((expert & 1) == 0 ? 32 : 0);
+        if (count != expected_count) {
+            throw std::runtime_error("skewed expert count changed");
+        }
+    }
+    for (int cluster = 0; cluster < 32; ++cluster) {
+        const int first_rank = cluster == 0 ? 1 : cluster * 8;
+        const int last_rank = cluster * 8 + 7;
+        const int expert = skewed[skewed_map[first_rank]];
+        for (int rank = first_rank + 1; rank <= last_rank; ++rank) {
+            if (skewed[skewed_map[rank]] != expert) {
+                throw std::runtime_error("skewed eight-M cluster crosses an expert boundary");
+            }
+        }
+    }
+    for (const PublicCase& public_case : kPublicCases) {
+        const bool expected = std::string(public_case.name) == "prefill-gate-up";
+        if (xh_fused_moe::use_case2_output_scratch_expert_sort(public_case.config)
+            != expected) {
+            throw std::runtime_error(
+                std::string("output scratch sort dispatch mismatch for ") + public_case.name);
+        }
+        const int expected_grid_x = expected
+            ? xh_fused_moe::kOutputScratchSortGridM
+            : xh_fused_moe::mma_grid_x(public_case.config);
+        if (xh_fused_moe::mma_launch_grid_x(public_case.config) != expected_grid_x) {
+            throw std::runtime_error(
+                std::string("expert-cluster grid mismatch for ") + public_case.name);
+        }
+        const int grid_y = (public_case.config.n + 127) / 128;
+        const int grid_m = (public_case.config.em + 127) / 128;
+        const int grid_z = (grid_m + expected_grid_x - 1) / expected_grid_x;
+        if (expected && (grid_y != 32 || grid_z != 32)) {
+            throw std::runtime_error("case-2 expert-cluster grid is not (8,32,32)");
+        }
+    }
+
+    constexpr size_t scratch_bytes =
+        xh_fused_moe::kOutputScratchSortTiles * sizeof(int32_t);
+    constexpr size_t body_first_write_byte =
+        static_cast<size_t>(128) * 4096 * sizeof(uint16_t);
+    constexpr size_t tile_zero_overwrite_bytes = body_first_write_byte;
+    constexpr size_t one_a_tile_bytes = static_cast<size_t>(128) * 7168;
+    constexpr size_t one_b_tile_bytes = static_cast<size_t>(128) * 7168;
+    constexpr size_t cluster_working_set_bytes =
+        xh_fused_moe::kOutputScratchSortGridM * one_a_tile_bytes + one_b_tile_bytes;
+    constexpr size_t modeled_l2_bytes = 8U * 1024U * 1024U;
+    constexpr size_t modeled_l2_headroom_bytes = modeled_l2_bytes - cluster_working_set_bytes;
+    static_assert(scratch_bytes == 1024, "sort map is not exactly 1 KiB");
+    static_assert(body_first_write_byte == 1048576, "body write boundary changed");
+    static_assert(tile_zero_overwrite_bytes == 1048576, "tile-zero span changed");
+    static_assert(cluster_working_set_bytes == 8257536, "8M cluster working set changed");
+    static_assert(modeled_l2_headroom_bytes == 131072, "8 MiB headroom changed");
+    if (scratch_bytes > body_first_write_byte
+        || scratch_bytes > tile_zero_overwrite_bytes) {
+        throw std::runtime_error("sort map overlaps the body or escapes tile zero");
+    }
+
+    std::cout << "REGRESSION maca-output-scratch-sort exhaustive-patterns="
+              << exhaustive_patterns
+              << " full-distributions=all-same,all-unique,skewed"
+              << " stable-order=PASS bijection=PASS exact-mn-cover=8192/8192"
+              << " case2-grid=(8,32,32) expert-count-intervals=PASS"
+              << " skewed-homogeneous-clusters=32/32"
+              << " scratch-bytes=" << scratch_bytes
+              << " body-first-write-byte=" << body_first_write_byte
+              << " tile-zero-overwrite-byte=" << tile_zero_overwrite_bytes
+              << " cluster-working-set-bytes=" << cluster_working_set_bytes
+              << " modeled-l2-headroom-bytes=" << modeled_l2_headroom_bytes
+              << " input-readonly=PASS device-map=PASS\n";
+}
+
 void benchmark_public_case(const PublicCase& public_case) {
     const auto& config = public_case.config;
     const size_t a_count = static_cast<size_t>(config.em) * config.k;
@@ -757,6 +999,7 @@ void run_regression() {
     verify_plain_b64_store_mapping();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
+    verify_output_scratch_sort_structure();
     verify_mma_a_load_bounds();
     verify_mma_row_metadata_unpredicated();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});

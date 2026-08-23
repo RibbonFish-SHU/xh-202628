@@ -32,6 +32,50 @@ static inline int mma_grid_x(const KernelConfig& config) {
     return grid_m < group_tiles ? grid_m : group_tiles;
 }
 
+constexpr int kOutputScratchSortTiles = 256;
+constexpr int kOutputScratchSortGridM = 8;
+
+static inline bool use_case2_output_scratch_expert_sort(const KernelConfig& config) {
+    return config.em == 32768 && config.n == 4096 && config.k == 7168;
+}
+
+static inline int mma_launch_grid_x(const KernelConfig& config) {
+    return use_case2_output_scratch_expert_sort(config)
+        ? kOutputScratchSortGridM
+        : mma_grid_x(config);
+}
+
+__host__ __device__ __forceinline__ int output_scratch_stable_sort_rank(
+    const int32_t* expert_ids,
+    int logical_tile_m,
+    int tile_count
+) {
+    if (logical_tile_m == 0) {
+        return 0;
+    }
+
+    const int expert = expert_ids[logical_tile_m];
+    int rank = 1;
+    for (int candidate = 1; candidate < tile_count; ++candidate) {
+        const int candidate_expert = expert_ids[candidate];
+        rank += candidate_expert < expert
+            || (candidate_expert == expert && candidate < logical_tile_m);
+    }
+    return rank;
+}
+
+__global__ void build_output_scratch_expert_sort_map_kernel(
+    const int32_t* __restrict__ expert_ids,
+    __nv_bfloat16* __restrict__ out
+) {
+    const int logical_tile_m = threadIdx.x;
+    if (logical_tile_m < kOutputScratchSortTiles) {
+        const int physical_tile_m = output_scratch_stable_sort_rank(
+            expert_ids, logical_tile_m, kOutputScratchSortTiles);
+        reinterpret_cast<int32_t*>(out)[physical_tile_m] = logical_tile_m;
+    }
+}
+
 static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs) {
     return lhs.em == rhs.em && lhs.n == rhs.n && lhs.k == rhs.k;
 }
@@ -151,6 +195,7 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
+template <bool kUseOutputScratchExpertSort>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -200,15 +245,20 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     dst = __builtin_mxc_byte_perm(src0, src1, 0x03020706)
 
     const int tid = threadIdx.x;
-    const int tile_m = blockIdx.x + blockIdx.z * gridDim.x;
+    const int physical_tile_m = blockIdx.x + blockIdx.z * gridDim.x;
     const int tile_n = blockIdx.y;
     const int wave = tid / kMmaWaveSize;
     const int lane = tid % kMmaWaveSize;
-    const int row_base = tile_m * kMmaTileM;
 
-    if (row_base >= em) {
+    if (physical_tile_m * kMmaTileM >= em
+        || (kUseOutputScratchExpertSort && physical_tile_m == 0)) {
         return;
     }
+
+    const int tile_m = kUseOutputScratchExpertSort
+        ? reinterpret_cast<const int32_t*>(out_ptr)[physical_tile_m]
+        : physical_tile_m;
+    const int row_base = tile_m * kMmaTileM;
 
     __shared__ int8_t shared_data[kMmaSharedBytes];
     int8_t* shared_a = shared_data;
@@ -828,24 +878,59 @@ static inline void launch(
 #if XH_FUSED_MOE_MACA
     const dim3 block(kMmaThreads);
     const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
-    const int grid_x = mma_grid_x(config);
+    const bool use_output_scratch_sort = use_case2_output_scratch_expert_sort(config);
+    const int grid_x = mma_launch_grid_x(config);
     const dim3 grid(
         grid_x,
         (config.n + kMmaTileN - 1) / kMmaTileN,
         (grid_m + grid_x - 1) / grid_x
     );
-    fused_moe_i8_tn_mma_kernel<<<grid, block>>>(
-        a,
-        b_col_major,
-        scale_a,
-        scale_b,
-        moe_weights,
-        expert_ids,
-        out,
-        config.em,
-        config.n,
-        config.k
-    );
+    if (use_output_scratch_sort) {
+        build_output_scratch_expert_sort_map_kernel
+            <<<1, kOutputScratchSortTiles>>>(expert_ids, out);
+        fused_moe_i8_tn_mma_kernel<true><<<grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+        const dim3 tile_zero_grid(
+            1,
+            (config.n + kMmaTileN - 1) / kMmaTileN,
+            1
+        );
+        fused_moe_i8_tn_mma_kernel<false><<<tile_zero_grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+    } else {
+        fused_moe_i8_tn_mma_kernel<false><<<grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+    }
 #else
     constexpr int BLOCK_M = 32;
     constexpr int BLOCK_N = 32;
