@@ -770,6 +770,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T02:56:00+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123337"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-044-k64-pipeline",
+      "claim_id": "claim-91e9cc94173640009a697a6c93f8e645",
+      "commit": "5a5fcb5b43da2c624948217a6fb308c8a8fdf8cd",
+      "evidence": "artifacts/raw/xpuoj/123400",
+      "experiment": "exp-20260823-044",
+      "id": "123400",
+      "language": "CUDA Maca",
+      "notes": "K64 pipeline passed 4/4 but regressed all cases to 58/53/84/76; doubled barriers and target lowering dominated the 16-KiB LDS reduction; reject and restore formal best.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "67.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T03:54:27+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123400"
     }
   ],
   "version": 2
