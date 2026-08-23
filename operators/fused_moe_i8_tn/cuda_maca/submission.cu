@@ -192,7 +192,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #define XH_LDS_A_B128(rowi, coli)                                                                 \
     XH_MMA_LDS(a_frag[rowi][coli * 4], shared_a_tensor(lds_row_a[rowi], lds_col[coli]), MmaLoad128)
 #define XH_LDS_B_B128(rowi, coli)                                                                 \
-    XH_MMA_LDS(b_frag[rowi][coli * 4], shared_b_tensor((tid % 16) + 16 * rowi, lds_col[coli]), MmaLoad128)
+    XH_MMA_LDS(b_frag[rowi][coli * 4], shared_b_tensor(lds_row_b[rowi], lds_col[coli]), MmaLoad128)
 
 #define XH_CVT_F32_TO_BF16(dst, src0, src1)                                                       \
     src0 = ((src0 >> 16) & 1) + src0 + 0x7fff;                                                   \
@@ -301,12 +301,17 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     int32_t a_frag[kMmaRows][kMmaDepth];
     int32_t b_frag[kMmaCols][kMmaDepth];
     int lds_row_a[2];
+    int lds_row_b[8];
     int lds_col[2];
 
 #pragma unroll
     for (int i = 0; i < 2; ++i) {
         lds_col[i] = (((tid % 16) + (lane / 16) + 4 * i) % 8) * 16;
         lds_row_a[i] = (tid % 16) + wave * 32 + 16 * i;
+    }
+#pragma unroll
+    for (int i = 0; i < 8; ++i) {
+        lds_row_b[i] = (tid % 16) + 16 * i;
     }
 
     __syncthreadshared();

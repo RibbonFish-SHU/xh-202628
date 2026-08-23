@@ -710,6 +710,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T00:41:01+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123118"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-041-b-lds-row-inline",
+      "claim_id": "claim-8a05608e18664dc1bbff22b37045d808",
+      "commit": "bbccae7cb8067e2892f5ecd6e180e22b0127e820",
+      "evidence": "artifacts/raw/xpuoj/123150",
+      "experiment": "exp-20260823-041",
+      "id": "123150",
+      "language": "CUDA Maca",
+      "notes": "Inline B LDS row preserved 4/4 correctness and tied formal best at 82.25; cases 83/73/89/84, times 1.002/8.105/0.548/4.105 ms; reject tie and restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "82.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T01:03:43+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123150"
     }
   ],
   "version": 2

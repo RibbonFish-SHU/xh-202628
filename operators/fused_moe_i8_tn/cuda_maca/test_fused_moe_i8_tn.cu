@@ -552,92 +552,11 @@ void verify_mma_a_load_bounds() {
     }
 }
 
-void verify_mma_b_lds_row_inline() {
-    struct BLoadCall {
-        int row;
-        int column_half;
-    };
-    constexpr BLoadCall calls[] = {
-        {0, 0}, {1, 0}, {2, 0}, {3, 0},
-        {4, 0}, {5, 0}, {6, 0}, {7, 0},
-        {0, 1}, {1, 1}, {2, 1}, {3, 1},
-        {4, 1}, {5, 1}, {6, 1}, {7, 1},
-        {0, 0}, {1, 0}, {2, 0}, {3, 0},
-        {4, 0}, {5, 0}, {6, 0}, {7, 0},
-        {0, 1}, {1, 1}, {2, 1}, {3, 1},
-        {4, 1}, {5, 1}, {6, 1}, {7, 1},
-    };
-    constexpr int threads = 256;
-    constexpr int wave_size = 64;
-    constexpr int tile_rows = 128;
-    constexpr int tile_k = 128;
-    constexpr int chunks_per_row = tile_k / 16;
-    constexpr int words_per_load = 4;
-    constexpr int phase_call_count = 16;
-    int vector_visits[4][2][tile_rows * chunks_per_row] = {};
-    int checked_fragments = 0;
-
-    for (int thread_id = 0; thread_id < threads; ++thread_id) {
-        const int lane = thread_id % wave_size;
-        int baseline_rows[8];
-        for (int rowi = 0; rowi < 8; ++rowi) {
-            baseline_rows[rowi] = (thread_id % 16) + 16 * rowi;
-        }
-        for (int call_index = 0;
-             call_index < static_cast<int>(sizeof(calls) / sizeof(calls[0]));
-             ++call_index) {
-            const BLoadCall call = calls[call_index];
-            if (call.row < 0 || call.row >= 8
-                || call.column_half < 0 || call.column_half >= 2) {
-                throw std::runtime_error("B LDS call order contains a non-literal range");
-            }
-            const int lds_col = (
-                ((thread_id % 16) + (lane / 16) + 4 * call.column_half) % 8) * 16;
-            const int baseline_row = baseline_rows[call.row];
-            const int inline_row = (thread_id % 16) + 16 * call.row;
-            if (inline_row != baseline_row) {
-                throw std::runtime_error("inlined B LDS row differs from baseline row array");
-            }
-            for (int word = 0; word < words_per_load; ++word) {
-                const int baseline_address = baseline_row * tile_k + lds_col + word * 4;
-                const int inline_address = inline_row * tile_k + lds_col + word * 4;
-                const int baseline_fragment = call.row * 8 + call.column_half * 4 + word;
-                const int inline_fragment = call.row * 8 + call.column_half * 4 + word;
-                if (inline_address != baseline_address
-                    || inline_fragment != baseline_fragment) {
-                    throw std::runtime_error("B LDS address or fragment order changed");
-                }
-                ++checked_fragments;
-            }
-            const int wave = thread_id / wave_size;
-            const int phase = call_index / phase_call_count;
-            const int vector = inline_row * chunks_per_row + lds_col / 16;
-            ++vector_visits[wave][phase][vector];
-        }
-    }
-
-    for (int wave = 0; wave < 4; ++wave) {
-        for (int phase = 0; phase < 2; ++phase) {
-            for (int vector = 0; vector < tile_rows * chunks_per_row; ++vector) {
-                if (vector_visits[wave][phase][vector] != 1) {
-                    throw std::runtime_error("B LDS phase is not an exact shared-tile cover");
-                }
-            }
-        }
-    }
-
-    std::cout << "REGRESSION maca-b-lds-row-inline threads=256 call-sites=32 "
-              << "executions=8192 fragments=" << checked_fragments
-              << " phases=2 per-wave-exact-cover=PASS row-i32=8->0 init-ops=8->0 "
-              << "address-fragment-order=PASS\n";
-}
-
 void run_regression() {
     verify_public_inference();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
-    verify_mma_b_lds_row_inline();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
