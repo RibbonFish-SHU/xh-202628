@@ -1,6 +1,6 @@
 # Project State
 
-更新时间：2026-08-23（Asia/Shanghai）
+更新时间：2026-08-24（Asia/Shanghai）
 
 ## 门禁状态
 
@@ -78,6 +78,7 @@
 | Fused MoE output-scratch expert pairing C500 候选 | c500-regressed | `exp-20260823-059` / tested `416d6e92a56b` / queue tip `dc51495e1dc2` 在 MetaX C500/xcore1000 上通过 build、correctness、regression、warmup、ABBA 与 manifest 门禁；paired prefill gate-up 从 `8.213` 回退至 `8.4515 ms`（`+2.904%`），而其他三点变化均不超过 `0.459%`。决定 `revert`，不提交 OJ，关闭 output-scratch expert-pairing family；正式最佳源码未改变。 |
 | Fused MoE wave-phased LDG 候选 | c500-regressed | `exp-20260824-060` / tested `2ea3dbcce6ff` / queue tip `97e9f026adb0` 对 case 2 的偶数 waves 保留 early-B schedule、奇数 waves 改为 early-A/late-B；地址、字节、STS/LDS/MMA、barrier 和 geometry 不变，独立安全审计 `approve`。C500 build/correctness/regression/manifest 通过，但 prefill gate-up 回退 `2.522%`、decode gate-up 回退 `4.352%`、prefill down 回退 `0.525%`。决定 `revert`，不做 attempt 2/OJ，并关闭 wave-phased LDG family。 |
 | Fused MoE eight-wave CTA 初版候选 | audit-rejected | `exp-20260824-062` / candidate `3b879f2ec10d` 的 512-thread、4M x 2N mapping、A/B 地址覆盖、512 个 aggregate MMA identity、16,384-element output cover、`2T-1` barrier 生命周期和只读输入均经独立审计通过；但它同时把 formal-best 的逐事件手工流水改成 batched LDG/LDS/STS/MMA schedule，无法把 C500 结果归因到 eight-wave ownership。决定 `needs-fix`，不占用 C500/OJ；以新身份 `exp-20260824-063` 仅重放 mapping 并恢复 formal-best issue schedule。 |
+| Fused MoE eight-wave formal-schedule 候选 | c500-regressed | `exp-20260824-063` / tested `ad06e4a43d9b` / queue tip `0d0adfd1a938` 仅为 case 2 增加 512-thread、4M x 2N eight-wave ownership，并逐事件投影 formal-best schedule；独立审计批准 mapping、地址、同步、输出和归因。C500 build/correctness/regression/manifest 通过，但 prefill gate-up 从 `8.3035` 回退至 `10.5305 ms`（`+26.820%`）；其他三点变化均小于 `1%`。决定 `revert`，不做 attempt 2/OJ，并关闭带双倍 A LDS/row metadata 与 tail barrier 的 eight-wave family。 |
 | Fused MoE scalarized staged-load state 候选 | c500-improved | `exp-20260824-061` / tested `126fd0fd1cc2` / queue tip `5dd17c8f4c40` 把 indexed A/B b128 payload arrays 展开为八个 literal scalar destinations，保持地址、字节、issue order、shared layout、MMA/LDS/STS/barrier 与 geometry 不变。两次 C500 build/correctness/regression/ABBA/manifest 全部通过；prefill gate-up delta 为 `-0.121%/-1.239%`，decode/prefill down 两次均稳定改善约 `1.8-2.2%`，唯一回退为第二次 decode gate-up `+0.370%`、低于 `0.5%` 门槛。决定 `keep` 并进入 OJ 目标验证；正式 best 在 OJ 终态前仍为 `8c519e6c1bb5`。 |
 | C500 本地算力 | available | MetaX C500/xcore1000；MACA 3.7.1.5；当前为 25% compute、16000 MiB slice；OJ slice 尚未确认等同 |
 | Agent OJ 提交次数 | 47 | 新增 `#123981` Accepted/81.75/exp-055；已登记、汇报并释放槽位，当前最佳仍为 `#117114` 的 82.25、实时排名 25 |
@@ -211,6 +212,8 @@
 55. `exp-20260824-061` / tested `126fd0fd1cc2` / queue tip `5dd17c8f4c40` 只把 `load_a[4]`/`load_b[4]` staged b128 payload state 展开为 `load_a_0..3`/`load_b_0..3` literal scalars，并等价展开初始 preload/store loops；所有 global/shared 地址、谓词、load/store cardinality、issue anchor、MMA/LDS/STS/barrier、256-thread CTA、32 KiB LDS、grid、epilogue 和 fallback 均保持不变。C500 runs `exp-20260824-061-126fd0fd1cc2-a01/a02` 都以 `succeeded/0` 完成 build、correctness、regression、四 case 五 sample ABBA、source/tree integrity 和 manifest 验证。两次 candidate latency delta 分别为 decode gate-up `-0.730%/+0.370%`、prefill gate-up `-0.121%/-1.239%`、decode down `-1.826%/-1.756%`、prefill down `-2.196%/-1.971%`；down 两点收益稳定，prefill gate-up 第二次达到 `1%` 门槛，唯一回退低于 `0.5%`。决定 `keep` 并集成 exact tested source 进入 OJ 验证；C500 绝对时间不换算为 OJ 分数，正式 best 在终态前不变。
 
 56. `exp-20260824-060` / tested `2ea3dbcce6ff` / queue tip `97e9f026adb0` 仅对 case 2 增加 wave-uniform load phase：waves 0/2 保留 formal-best early-B issue，waves 1/3 在 loop head 发射 A0/A1 并把 B0-B3 延后到 A2/A3 rotation loads 后；其余三 shape 编译为原 schedule。独立审计确认每 wave 的 A0..A3/B0..B3 cover、地址、旧 A2/A3 store-before-overwrite、barrier 收敛和只读输入正确。C500 run `exp-20260824-060-2ea3dbcce6ff-a01` 以 `succeeded/0` 完成 build、correctness、regression、ABBA 和 manifest，但 candidate latency delta 为 decode gate-up `+4.352%`、prefill gate-up `+2.522%`、decode down `0.000%`、prefill down `+0.525%`。目标和两个非目标点均越过回退门槛，决定 `revert`，不做 attempt 2/OJ，并关闭 wave-phased LDG family。
+
+57. `exp-20260824-063` / tested `ad06e4a43d9b` / queue tip `0d0adfd1a938` 只为 case 2 增加 512-thread、eight-wave 4M x 2N ownership：每线程 A/B payload 从 4/4 降为 2/2，accumulator 从 `2x8` 降为 `2x4`，同时保持 CTA/grid、32 KiB LDS、全局 A/B 字节、512 个 MMA identity、输出和 cases 1/3/4 不变。独立只读审计穷举批准 A/B producer、fragment/MMA、16,384 输出、cross-wave A 可见性、uniform barrier 和逐事件 formal-best schedule 归因。C500 run `exp-20260824-063-ad06e4a43d9b-a01` 以 `succeeded/0` 完成 build、三组 correctness、完整 regression、ABBA、source/tree integrity 和 31-entry manifest；paired delta 为 decode gate-up `-0.813%`、prefill gate-up `+26.820%`、decode down `-0.262%`、prefill down `+0.036%`。目标 case 从 `8.3035` 回退至 `10.5305 ms`，证明双倍 aggregate A LDS、双倍 row metadata、512-thread residency 与所需 tail barrier 的代价压倒 per-wave state 缩减。决定 `revert`，不做 attempt 2/OJ，并关闭该 eight-wave family。
 
 ## NVIDIA 执行链路验证
 
