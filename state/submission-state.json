@@ -891,6 +891,27 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T12:02:21+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123940"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-055-rowmeta-unpredicated",
+      "claim_id": "claim-22d1359ed2384cda8e9bdb51663c1fb4",
+      "commit": "1cf939603ff6c0e12f34098d10adaa99659aded7",
+      "evidence": "artifacts/raw/xpuoj/123981",
+      "experiment": "exp-20260823-055",
+      "id": "123981",
+      "language": "CUDA Maca",
+      "message_ref": "user-status-20260823-exp055",
+      "notes": "Ordinary b32 row-metadata loads preserved correctness but regressed to 81.75 (83/73/88/83); reject and restore formal best.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": "XPU-OJ #123981 / 1cf939603ff6c0e12f34098d10adaa99659aded7 / CUDA Maca row-metadata ordinary b32 loads: Accepted 4/4, 81.75, rank 25, cases 83/73/88/83, times 1020us/8ms/552us/4143us; 0.50 below formal best #117114, reject and restore exact best. NVIDIA proxy was provenance/fallback evidence only.",
+      "reported_at": "2026-08-23T13:08:23+00:00",
+      "reported_to_user": true,
+      "score": "81.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T12:42:49+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123981"
     }
   ],
   "version": 2

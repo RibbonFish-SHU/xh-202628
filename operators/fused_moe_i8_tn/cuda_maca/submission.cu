@@ -571,23 +571,27 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         for (uint32_t j = 0; j < 4; ++j) {
             const int row = output_row[i * 4 + j];
             *(reinterpret_cast<MmaInt1*>(&weights[i]) + j) =
-                __builtin_mxc_ldg_b32(
+                __builtin_mxc_ldg_b32_predicator(
                     const_cast<float*>(moe_weights_ptr + row),
                     0,
-                    -1,
                     true,
                     true,
                     false,
-                    false);
+                    false,
+                    row,
+                    em,
+                    MACA_ICMP_SLT);
             *(reinterpret_cast<MmaInt1*>(&row_scale[i]) + j) =
-                __builtin_mxc_ldg_b32(
+                __builtin_mxc_ldg_b32_predicator(
                     const_cast<float*>(scale_a_ptr + row),
                     0,
-                    -1,
                     true,
                     true,
                     false,
-                    false);
+                    false,
+                    row,
+                    em,
+                    MACA_ICMP_SLT);
         }
     }
 

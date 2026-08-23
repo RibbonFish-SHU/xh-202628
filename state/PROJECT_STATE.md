@@ -70,12 +70,12 @@
 | Fused MoE B-load cache-policy feasibility | rejected | `exp-20260823-052` 未改源码：权威 MXMACA 文档逐项定义的 predicated b128 参数均非 cache control，plain b128 ABI 又未公开；不允许把未知 `-1`/boolean 当 cache hint 盲试，关闭该 family。 |
 | Fused MoE exact-shape argument elision | dependency-rejected | `exp-20260823-053` / tested `80c926c2ea40` 让 exp-049 四个 fixed launch 使用 empty carrier、runtime fallback 保留 12-byte dimensions；proxy/NVIDIA build/correctness/regression 通过。但它依赖的 exp-049 在 OJ `#123828` 只同分，协议禁止把 dependent change 叠加在 losing candidate 上；候选已拒绝，不集成、不提交。 |
 | Fused MoE plain aligned b64 store 候选 | target-no-gain | `exp-20260823-054` / submitted `87920886af3e` 仅把两处永真 predicated b64 output store 改为普通对齐 `uint64_t` assignment；proxy/NVIDIA ownership、alignment、build/correctness/regression 门禁通过。OJ `#123940` 4/4 Accepted、82.00 分（83、73、89、83；1.017、8.000、0.547、4.135 ms），低于正式最佳 0.25；决定拒绝，活动源码已精确恢复 `8c519e6`。 |
-| Fused MoE row-metadata ordinary b32 load 候选 | queued | `exp-20260823-055` / queue tip `67101842f8b9` 只把每线程 16 个永远在界内的 `moe_weights`/`scale_a` predicated b32 load 改为 documented ordinary b32 load；proxy/NVIDIA source、build、correctness、穷举地址覆盖与回归门禁通过，待独立 target 验证。 |
+| Fused MoE row-metadata ordinary b32 load 候选 | target-regressed | `exp-20260823-055` / submitted `1cf939603ff6` 只把每线程 16 个永远在界内的 `moe_weights`/`scale_a` predicated b32 load 改为 documented ordinary b32 load；proxy/NVIDIA source、build、correctness、穷举地址覆盖与回归门禁通过。OJ `#123981` 4/4 Accepted、81.75 分（83、73、88、83；1.020、8.000、0.552、4.143 ms），低于正式最佳 0.50；决定拒绝，活动源码已精确恢复 `8c519e6`。 |
 | Fused MoE LDS/STS post-marker removal 候选 | audit-rejected | `exp-20260823-056` / tested `636dc99a11df` 只删除 LDS/STS macro 的两个 trailing marker；proxy/NVIDIA 门禁通过，但独立审计无法证明 MXCC 在保留 pre marker、删除官方 post delimiter 后仍维持关键 same-wave cross-lane STS->LDS 编译与 shared 可见顺序。缺少权威文档或目标 ISA 时拒绝，不集成、不提交。 |
 | Fused MoE device expert occurrence pairing 候选 | proxy-rejected | `exp-20260823-057` / tested `9840c032e6e6` 的映射、ownership、同步和 fallback correctness 通过，但每 CTA device occurrence scan 在 all-same/mixed/all-unique 分布的控制开销分别为 `149.504/154.624/355.328 us`，全部超过 `81 us` gate；关闭 per-CTA occurrence-scan family，不集成、不提交。 |
 | C500 本地算力 | unavailable | 当前未提供 |
-| Agent OJ 提交次数 | 46 | 新增 `#123940` Accepted/82.00/exp-054；已登记、汇报并释放槽位，当前最佳仍为 `#117114` 的 82.25、实时排名 25 |
-| 待向用户报告的提交 | none | `#123940` 已于 2026-08-23 本次状态询问时完整汇总并标记 reported；槽位此前已释放 |
+| Agent OJ 提交次数 | 47 | 新增 `#123981` Accepted/81.75/exp-055；已登记、汇报并释放槽位，当前最佳仍为 `#117114` 的 82.25、实时排名 25 |
+| 待向用户报告的提交 | none | `#123981` 已于 2026-08-23 本次状态询问时完整汇总并标记 reported；槽位此前已释放 |
 | 并行编排工作流 | implemented | Main Agent 统一管理隔离 Subagent、最多 4 路 NVIDIA run 和唯一 XPU-OJ active claim |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
@@ -182,6 +182,8 @@
 
 50. `exp-20260823-053` / tested `80c926c2ea40` 只让 exp-049 四个 fixed-shape launch 通过 empty C++14 carrier 得到模板维度，runtime fallback 保留 12-byte/3-int carrier；static gate 反向重建 exact exp-049 source，kernel body、traffic、MMA/shared/barrier/geometry/epilogue/store 不变。物理 GPU 2 committed snapshot 通过候选/基线 build、三组差分、carrier arity/layout、dispatch、公共 bounds/output/read-only regression；NVIDIA 仅执行 fallback，paired deltas视为噪声。由于依赖的 exp-049 已由 `#123828` 证明只与正式最佳同分，协议禁止将该 dependent change 叠加到 losing candidate；候选在 OJ 前拒绝。
 
+51. `exp-20260823-055` / tested `7b9dc6e9dd17` / submitted controller commit `1cf939603ff6` 保持 formal-best matrix/shared/epilogue、16 个 metadata b32 load、地址、字节、算术、geometry、barrier、stores 和 NVIDIA fallback 不变，只把两个 unrolled row-metadata load 表达式从 predicated 改为 ordinary documented b32 form。物理 GPU 1 committed snapshot 通过 exact baseline reconstruction、CUDA 12.2 build、三组差分、every-tile row bounds/address/value、16-hit coverage、traffic 和 read-only regression；proxy paired medians只作来源/fallback 证据。OJ `#123981` 在 xcore1000 编译并 4/4 Accepted，四点 `83/73/88/83`、显示时间 `1.020/8.000/0.552/4.143 ms`，总分 81.75、排名 25；相对正式最佳低 0.50，普通 b32 lowering 没有收益，决定 `revert`，活动源码已恢复最佳 blob `58c7b2418012303666a4d239974d7be7278a86f9` / LF SHA-256 `bed1887e257f7a513d4ba4db10d5e5ac88ccecf6377d24d4ca3f521fbd795b61`。
+
 ## NVIDIA 执行链路验证
 
 - `exp-20260818-000` / `6020d29b591c`：请求 GPU 0 时检测到已有负载，预检以 125 拒绝；没有启动 CUDA 任务，项目锁已释放。
@@ -257,3 +259,4 @@
 - `#123700` / `2026-08-23 16:27:12 +08:00` / `384e2206d262` / CUDA Maca：`Wrong Answer`、0 分、页面汇总 0 us / 0 B。MXCC/xcore1000 编译成功；样例 `matched_ratio=0.130758`（要求 0.99）、`max_abs_diff=294.5`，最大差异在 `(836,4021)`，target `-167.0`、ref `127.5`；诊断 payload `time_ms=1.073`、`tb_time_ms=5.829`、`speedup=5.432432` 但 `pass=false`，四个正式测试点全部 Skipped。safe-six `is_async=false` BSM 的目标 completion/visibility 语义被否决；最佳仍为 `#117114` 的 82.25、实时排名 25；已 finalized 并在本次状态询问中报告，活动源码与测试已精确恢复 `8c519e6`。
 - `#123828` / `2026-08-23 18:24:50 +08:00` / `ed4c5d33820d` / CUDA Maca：`Accepted`、4/4 正确、82.25 分，页面汇总 13 ms / 22.6 G。四点 83、73、89、84，显示用户核时间 0.979、8.000、0.522、3.915 ms；all-shape compile-time specialization 保持正确并在三个点显示更低延迟，但 case 2 仍为 73 分且总分只与正式最佳同分，实时排名仍 25。已 finalized、在本次状态询问中汇总并标记 reported；决定拒绝 tie，活动源码已精确恢复 `8c519e6`。
 - `#123940` / `2026-08-23 20:02:21 +08:00` / `87920886af3e` / CUDA Maca：`Accepted`、4/4 正确、82.00 分。四点 83、73、89、83，显示用户核时间 1.017、8.000、0.547、4.135 ms；普通对齐 `uint64_t` output store 保持正确但没有改善 case 2，并使 case 4 少 1 分，总分低于正式最佳 0.25、实时排名仍 25。已 finalized、在本次状态询问中汇总并标记 reported；决定拒绝，活动源码已精确恢复 `8c519e6`。
+- `#123981` / `2026-08-23 20:42:14 +08:00` / `1cf939603ff6` / CUDA Maca：`Accepted`、4/4 正确、81.75 分。四点 83、73、88、83，显示用户核时间 1.020、8.000、0.552、4.143 ms；ordinary b32 row-metadata load 保持正确但没有改善 case 2，并使 case 3/4 各少 1 个显示分，总分低于正式最佳 0.50、实时排名仍 25。已 finalized、在本次状态询问中汇总并标记 reported；决定拒绝，活动源码已精确恢复 `8c519e6`。
