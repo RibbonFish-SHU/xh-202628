@@ -1,5 +1,5 @@
 {
-  "pending_report": null,
+  "pending_report": "123700",
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -828,6 +828,26 @@
       "status": "Wrong Answer",
       "submitted_at": "2026-08-23T05:17:12+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123488"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-047-safe-six-bsm",
+      "claim_id": "claim-60e2e1110cb94109801b77bbe35d890b",
+      "commit": "384e2206d2623a7ba557c9f1d7de9e0f86d23fde",
+      "evidence": "artifacts/raw/xpuoj/123700",
+      "experiment": "exp-20260823-047",
+      "id": "123700",
+      "language": "CUDA Maca",
+      "notes": "MXCC xcore1000 compiled; sample matched_ratio 0.130758 max_abs_diff 294.5; all four cases skipped; reject safe-six is_async=false BSM and restore formal best.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "0",
+      "status": "Wrong Answer",
+      "submitted_at": "2026-08-23T08:27:56+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123700"
     }
   ],
   "version": 2
