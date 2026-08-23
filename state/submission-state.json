@@ -849,6 +849,27 @@
       "status": "Wrong Answer",
       "submitted_at": "2026-08-23T08:27:56+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123700"
+    },
+    {
+      "candidate_id": "cand-exp-20260823-049-all-shape-specialize",
+      "claim_id": "claim-8634a29bba734ab2900c8788dc43f855",
+      "commit": "ed4c5d33820dabd746ecccf8ab820ec2d8517ae2",
+      "evidence": "artifacts/raw/xpuoj/123828",
+      "experiment": "exp-20260823-049",
+      "id": "123828",
+      "language": "CUDA Maca",
+      "message_ref": "user-update-20260823T1857+0800",
+      "notes": "All-shape exact specialization passed 4/4 with cases 83/73/89/84 and times 979us/8ms/522us/3915us, but tied formal best 82.25; reject tie and restore exact #117114 source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": "XPU-OJ #123828 / ed4c5d33820dabd746ecccf8ab820ec2d8517ae2 / CUDA Maca all-shape specialization: Accepted 4/4, 82.25, rank 25, cases 83/73/89/84, times 979us/8ms/522us/3915us; tied formal best #117114, reject tie and restore exact best. NVIDIA proxy was provenance/fallback evidence only.",
+      "reported_at": "2026-08-23T10:58:55+00:00",
+      "reported_to_user": true,
+      "score": "82.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T10:25:20+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/123828"
     }
   ],
   "version": 2

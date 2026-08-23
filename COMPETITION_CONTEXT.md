@@ -10,8 +10,8 @@
 - 用户已完成报名、审核通过，已取得赛题二专用 XPU-OJ 账号并成功登录。
 - 用户给出的当前打榜入口：<https://xpuoj.com/contest/12/problem/1>。
 - 已于 2026-08-22 通过用户已登录的 OJ 页面再次只读确认题目为 `1. Agent 推理算子库优化 - Fused MoE i8 tn`，支持 CUDA Maca、Triton、TileLang，限制仍为 10000 ms / 4096 MiB，目标硬件为 C500。详细实时合同快照见 Skill reference；编码和每次提交前仍须复核页面变化。
-- 已完成 44 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳和活动源码仍是 `#117114` / `8c519e6c1bb5` 的 exact-row A-load CUDA Maca 核心，4/4 Accepted、82.25 分。`#122209` 的同步不完整 exp-024 被取消；`#122376`/`#122383` 实际重复提交 exp-023；exp-025 至 exp-047 的后续候选均未超过最佳，其中 BF16 ties-away、MMA-chain interleave、row-factor scalar fusion / `#123095` 与 inline B LDS row / `#123150` 仅同分，K64 / `#123400` 回退到 67.75 分，full A+B count-zero BSM / `#123488` 与 safe-six compiler-managed BSM / `#123700` 均样例 Wrong Answer、0 分；所有 losing candidate 均已恢复最佳源码。
-- 2026-08-23 17:05 核对 contest 12 榜单：当前账号 `muxi2026C2047` 排名 25、最佳分 82.25；榜首 87 分。最佳版本四个测试点分数为 83、73、89、84；prefill gate-up 仍是主要短板。
+- 已完成 45 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳和活动源码仍是 `#117114` / `8c519e6c1bb5` 的 exact-row A-load CUDA Maca 核心，4/4 Accepted、82.25 分。`#122209` 的同步不完整 exp-024 被取消；`#122376`/`#122383` 实际重复提交 exp-023；exp-025 至 exp-049 的后续候选均未超过最佳，其中 BF16 ties-away、MMA-chain interleave、row-factor scalar fusion / `#123095`、inline B LDS row / `#123150` 与 all-shape specialization / `#123828` 仅同分，K64 / `#123400` 回退到 67.75 分，full A+B count-zero BSM / `#123488` 与 safe-six compiler-managed BSM / `#123700` 均样例 Wrong Answer、0 分；所有 losing candidate 均已恢复最佳源码。
+- 2026-08-23 18:55 核对 contest 12 榜单：当前账号 `muxi2026C2047` 排名 25、最佳分 82.25；榜首 87 分。最佳版本四个测试点分数为 83、73、89、84；prefill gate-up 仍是主要短板。
 - NVIDIA 服务器：`lynsdu2@10.0.33.75`。
 - 已于 2026-08-18 完成该服务器的只读环境探测，并在用户明确许可后创建专用执行目录；后续远端 run 均只使用该隔离目录。
 - 用户明确要求：在服务器创建任何工作目录之前，必须先取得他的明确许可。

@@ -36,32 +36,6 @@ static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs)
     return lhs.em == rhs.em && lhs.n == rhs.n && lhs.k == rhs.k;
 }
 
-enum MmaShapeSpecialization {
-    kMmaRuntimeShape = 0,
-    kMmaShape4096x4096x7168,
-    kMmaShape32768x4096x7168,
-    kMmaShape4096x7168x2048,
-    kMmaShape32768x7168x2048,
-};
-
-static inline MmaShapeSpecialization mma_shape_specialization(
-    const KernelConfig& config
-) {
-    if (same_config(config, {4096, 4096, 7168})) {
-        return kMmaShape4096x4096x7168;
-    }
-    if (same_config(config, {32768, 4096, 7168})) {
-        return kMmaShape32768x4096x7168;
-    }
-    if (same_config(config, {4096, 7168, 2048})) {
-        return kMmaShape4096x7168x2048;
-    }
-    if (same_config(config, {32768, 7168, 2048})) {
-        return kMmaShape32768x7168x2048;
-    }
-    return kMmaRuntimeShape;
-}
-
 static inline bool config_from_bytes(size_t bytes, bool is_a, KernelConfig* config) {
     static const KernelConfig kConfigs[] = {
         {4096, 4096, 7168},
@@ -177,7 +151,6 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <int kFixedEm, int kFixedN, int kFixedK>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -186,15 +159,11 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const float* __restrict__ moe_weights_ptr,
     const int32_t* __restrict__ expert_ids_ptr,
     __nv_bfloat16* __restrict__ out_ptr,
-    int runtime_em,
-    int runtime_n,
-    int runtime_k
+    int em,
+    int n,
+    int k
 ) {
     using namespace cute;
-
-    const int em = kFixedEm == 0 ? runtime_em : kFixedEm;
-    const int n = kFixedN == 0 ? runtime_n : kFixedN;
-    const int k = kFixedK == 0 ? runtime_k : kFixedK;
 
 #define XH_MMA_STAGE_MNKX2(m, nn, kk)                                                             \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
@@ -865,33 +834,18 @@ static inline void launch(
         (config.n + kMmaTileN - 1) / kMmaTileN,
         (grid_m + grid_x - 1) / grid_x
     );
-    switch (mma_shape_specialization(config)) {
-        case kMmaShape4096x4096x7168:
-            fused_moe_i8_tn_mma_kernel<4096, 4096, 7168><<<grid, block>>>(
-                a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out,
-                config.em, config.n, config.k);
-            break;
-        case kMmaShape32768x4096x7168:
-            fused_moe_i8_tn_mma_kernel<32768, 4096, 7168><<<grid, block>>>(
-                a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out,
-                config.em, config.n, config.k);
-            break;
-        case kMmaShape4096x7168x2048:
-            fused_moe_i8_tn_mma_kernel<4096, 7168, 2048><<<grid, block>>>(
-                a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out,
-                config.em, config.n, config.k);
-            break;
-        case kMmaShape32768x7168x2048:
-            fused_moe_i8_tn_mma_kernel<32768, 7168, 2048><<<grid, block>>>(
-                a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out,
-                config.em, config.n, config.k);
-            break;
-        default:
-            fused_moe_i8_tn_mma_kernel<0, 0, 0><<<grid, block>>>(
-                a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out,
-                config.em, config.n, config.k);
-            break;
-    }
+    fused_moe_i8_tn_mma_kernel<<<grid, block>>>(
+        a,
+        b_col_major,
+        scale_a,
+        scale_b,
+        moe_weights,
+        expert_ids,
+        out,
+        config.em,
+        config.n,
+        config.k
+    );
 #else
     constexpr int BLOCK_M = 32;
     constexpr int BLOCK_N = 32;
