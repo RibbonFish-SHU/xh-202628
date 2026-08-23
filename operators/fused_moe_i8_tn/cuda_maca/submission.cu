@@ -179,9 +179,25 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false,                                                                                     \
         false)
 
-#define XH_LDG_B_STAGE_I(ldgi)                                                                    \
-    load_b[ldgi] = __builtin_mxc_ldg_b128(                                                        \
-        &(global_b(load_b_row[ldgi], load_k, tile_k)),                                            \
+#define XH_BSM_A_STAGE_I(bsmi, tile_index)                                                        \
+    __builtin_mxc_ldg_b128_bsm(                                                                    \
+        shared_a + store_row_a[bsmi] * kMmaTileK + store_col,                                    \
+        const_cast<void*>(reinterpret_cast<const void*>(                                          \
+            a_ptr + load_a_row_offset[bsmi] + (tile_index) * kMmaTileK + load_k)),                 \
+        0,                                                                                         \
+        -1,                                                                                        \
+        true,                                                                                      \
+        true,                                                                                      \
+        false,                                                                                     \
+        false)
+
+#define XH_BSM_B_STAGE_I(bsmi, tile_index)                                                        \
+    __builtin_mxc_ldg_b128_bsm(                                                                    \
+        shared_b + store_row_b[bsmi] * kMmaTileK + store_col,                                    \
+        const_cast<void*>(reinterpret_cast<const void*>(                                          \
+            expert_b + static_cast<uint64_t>(                                                     \
+                tile_n * kMmaTileN + load_b_row[bsmi]) * k                                        \
+                + (tile_index) * kMmaTileK + load_k)),                                            \
         0,                                                                                         \
         -1,                                                                                        \
         true,                                                                                      \
@@ -325,24 +341,18 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const int loop_k_tiles = num_k_tiles - 1;
     a_base = const_cast<int8_t*>(a_ptr);
     for (uint32_t tile_k = 0; tile_k < loop_k_tiles; ++tile_k) {
-        XH_LDG_B_STAGE_I(0);
-        XH_LDG_B_STAGE_I(1);
         XH_MMA_STAGE_MNKX2(0, 0, 0);
         XH_LDS_B_B128(4, 0);
         XH_MMA_STAGE_MNKX2(0, 0, 2);
         XH_LDS_B_B128(5, 0);
         XH_MMA_STAGE_MNKX2(0, 1, 0);
         XH_LDS_B_B128(6, 0);
-        XH_LDG_B_STAGE_I(2);
         XH_MMA_STAGE_MNKX2(0, 1, 2);
         XH_LDS_B_B128(7, 0);
         XH_MMA_STAGE_MNKX2(0, 2, 0);
-        XH_LDG_B_STAGE_I(3);
         XH_MMA_STAGE_MNKX2(0, 2, 2);
         XH_MMA_STAGE_MNKX2(0, 3, 0);
-        XH_LDG_A_STAGE_I(0);
         XH_MMA_STAGE_MNKX2(0, 3, 2);
-        XH_LDG_A_STAGE_I(1);
 
         XH_MMA_STAGE_MNKX2(0, 4, 0);
         XH_LDS_A_B128(0, 1);
@@ -398,33 +408,33 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(1, 3, 2);
 
         XH_MMA_STAGE_MNKX2(1, 4, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b[0], MmaLoad128);
+        XH_BSM_B_STAGE_I(0, tile_k);
         XH_MMA_STAGE_MNKX2(1, 4, 2);
         XH_MMA_STAGE_MNKX2(1, 5, 0);
         XH_MMA_STAGE_MNKX2(1, 5, 2);
-        XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b[1], MmaLoad128);
+        XH_BSM_B_STAGE_I(1, tile_k);
         XH_MMA_STAGE_MNKX2(1, 6, 0);
         XH_MMA_STAGE_MNKX2(1, 6, 2);
         XH_MMA_STAGE_MNKX2(1, 7, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b[2], MmaLoad128);
+        XH_BSM_B_STAGE_I(2, tile_k);
         XH_MMA_STAGE_MNKX2(1, 7, 2);
 
         XH_MMA_STAGE_MNKX2(1, 0, 4);
         XH_MMA_STAGE_MNKX2(1, 0, 6);
-        XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b[3], MmaLoad128);
+        XH_BSM_B_STAGE_I(3, tile_k);
         XH_MMA_STAGE_MNKX2(1, 1, 4);
         XH_MMA_STAGE_MNKX2(1, 1, 6);
         XH_MMA_STAGE_MNKX2(1, 2, 4);
-        XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a[0], MmaLoad128);
+        XH_BSM_A_STAGE_I(0, tile_k);
         XH_MMA_STAGE_MNKX2(1, 2, 6);
         XH_MMA_STAGE_MNKX2(1, 3, 4);
         XH_MMA_STAGE_MNKX2(1, 3, 6);
-        XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a[1], MmaLoad128);
+        XH_BSM_A_STAGE_I(1, tile_k);
 
         XH_MMA_STAGE_MNKX2(1, 4, 4);
         XH_MMA_STAGE_MNKX2(1, 4, 6);
         XH_MMA_STAGE_MNKX2(1, 5, 4);
-        __syncthreadshared();
+        __syncthreads();
         XH_MMA_STAGE_MNKX2(1, 5, 6);
         XH_LDS_A_B128(0, 0);
         XH_LDS_B_B128(0, 0);
@@ -694,7 +704,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #undef XH_CVT_F32_TO_BF16
 #undef XH_LDS_B_B128
 #undef XH_LDS_A_B128
-#undef XH_LDG_B_STAGE_I
+#undef XH_BSM_B_STAGE_I
+#undef XH_BSM_A_STAGE_I
 #undef XH_LDG_A_STAGE_I
 #undef XH_MMA_STAGE_MNKX2
 }
