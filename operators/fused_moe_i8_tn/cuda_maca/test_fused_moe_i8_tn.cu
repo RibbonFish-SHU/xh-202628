@@ -662,12 +662,96 @@ void verify_mma_a_load_bounds() {
     }
 }
 
+void verify_mma_row_metadata_unpredicated() {
+    constexpr int tile_rows = 128;
+    constexpr int threads = 256;
+    constexpr int row_groups = 2;
+    constexpr int rows_per_group = 4;
+    constexpr int metadata_arrays = 2;
+    constexpr int bytes_per_scalar = sizeof(float);
+    constexpr int loads_per_thread = row_groups * rows_per_group * metadata_arrays;
+    constexpr int loads_per_cta = threads * loads_per_thread;
+    constexpr int dynamic_bytes_per_cta = loads_per_cta * bytes_per_scalar;
+    constexpr int unique_bytes_per_cta = tile_rows * metadata_arrays * bytes_per_scalar;
+    constexpr int predicate_compares_removed_per_cta = loads_per_cta;
+    constexpr int expected_row_hits =
+        threads * row_groups * rows_per_group / tile_rows;
+    static_assert(loads_per_thread == 16, "row metadata load count changed");
+    static_assert(loads_per_cta == 4096, "CTA row metadata load count changed");
+    static_assert(dynamic_bytes_per_cta == 16384, "CTA row metadata bytes changed");
+    static_assert(unique_bytes_per_cta == 1024, "CTA row metadata footprint changed");
+    static_assert(expected_row_hits == 16, "row metadata reuse factor changed");
+
+    for (const PublicCase& public_case : kPublicCases) {
+        const int em = public_case.config.em;
+        if ((em % tile_rows) != 0) {
+            throw std::runtime_error(
+                std::string("row metadata shape is not exact-tile aligned for ")
+                + public_case.name);
+        }
+        std::vector<int> row_hits(em, 0);
+        std::vector<uint32_t> weight_bits(em);
+        std::vector<uint32_t> scale_bits(em);
+        for (int row = 0; row < em; ++row) {
+            weight_bits[row] = 0x3f000000U ^ static_cast<uint32_t>(row * 0x9e3779b9U);
+            scale_bits[row] = 0x40000000U ^ static_cast<uint32_t>(row * 0x85ebca6bU);
+        }
+        for (int row_base = 0; row_base < em; row_base += tile_rows) {
+            for (int thread_id = 0; thread_id < threads; ++thread_id) {
+                for (int row_group = 0; row_group < row_groups; ++row_group) {
+                    for (int row_in_group = 0; row_in_group < rows_per_group;
+                         ++row_in_group) {
+                        const int local_row = xh_fused_moe::mma_output_row_local(
+                            thread_id, row_group, row_in_group);
+                        const int global_row = row_base + local_row;
+                        if (local_row < 0 || local_row >= tile_rows
+                            || global_row < row_base || global_row >= row_base + tile_rows
+                            || global_row >= em) {
+                            throw std::runtime_error(
+                                std::string("unpredicated row metadata is out of bounds for ")
+                                + public_case.name);
+                        }
+                        const bool baseline_active = global_row < em;
+                        const uint32_t baseline_weight =
+                            baseline_active ? weight_bits[global_row] : 0U;
+                        const uint32_t baseline_scale =
+                            baseline_active ? scale_bits[global_row] : 0U;
+                        if (baseline_weight != weight_bits[global_row]
+                            || baseline_scale != scale_bits[global_row]) {
+                            throw std::runtime_error(
+                                "unpredicated row metadata changed a loaded value");
+                        }
+                        ++row_hits[global_row];
+                    }
+                }
+            }
+        }
+        if (!std::all_of(
+                row_hits.begin(), row_hits.end(),
+                [](int count) { return count == expected_row_hits; })) {
+            throw std::runtime_error(
+                std::string("row metadata coverage changed for ") + public_case.name);
+        }
+        std::cout << "REGRESSION maca-row-metadata-unpredicated case="
+                  << public_case.name
+                  << " exact-bounds=PASS exact-address-values=PASS row-hits="
+                  << expected_row_hits
+                  << " loads-per-thread=" << loads_per_thread
+                  << " loads-per-cta=" << loads_per_cta
+                  << " dynamic-bytes-per-cta=" << dynamic_bytes_per_cta
+                  << " unique-bytes-per-cta=" << unique_bytes_per_cta
+                  << " predicate-compares-removed-per-cta="
+                  << predicate_compares_removed_per_cta << "\n";
+    }
+}
+
 void run_regression() {
     verify_public_inference();
     verify_plain_b64_store_mapping();
     verify_mma_output_mapping();
     verify_mma_grid_mapping();
     verify_mma_a_load_bounds();
+    verify_mma_row_metadata_unpredicated();
     run_small_case({{128, 32, 256}, 2, 0x27182818U, 1, "all-zero-readonly"});
 }
 
