@@ -912,6 +912,27 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T12:42:49+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/123981"
+    },
+    {
+      "candidate_id": "cand-exp-20260824-061-scalar-load-state",
+      "claim_id": "claim-e7ba94128f3d490b919d85341c8b535f",
+      "commit": "23a7f48e584d3d34c63e53abdecb9e02c9651125",
+      "evidence": "artifacts/raw/xpuoj/124456",
+      "experiment": "exp-20260824-061",
+      "id": "124456",
+      "language": "CUDA Maca",
+      "message_ref": "user-update-20260824-password-interrupt",
+      "notes": "Accepted tie at 82.25 (83/73/89/84); reject as no formal-best improvement and restore exact #117114 source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.25",
+      "rank": "25",
+      "report_summary": "exp-061 / commit 23a7f48e584d3d34c63e53abdecb9e02c9651125: Accepted 82.25, rank 25, cases 83/73/89/84; tied formal best and rejected.",
+      "reported_at": "2026-08-23T18:54:53+00:00",
+      "reported_to_user": true,
+      "score": "82.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-23T18:26:50+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/124456"
     }
   ],
   "version": 2
