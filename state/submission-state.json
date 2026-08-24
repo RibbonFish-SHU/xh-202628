@@ -1115,6 +1115,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-24T12:49:19+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/125413"
+    },
+    {
+      "candidate_id": "cand-exp-20260824-092-case2-nk-partial-specialization",
+      "claim_id": "claim-44b77f1d85cd4b7ba0531cbf2993780d",
+      "commit": "b178450cc5a44024318f2bd891dbdb54fd5e9a31",
+      "evidence": "artifacts/raw/xpuoj/125593",
+      "experiment": "exp-20260824-092",
+      "id": "125593",
+      "language": "CUDA Maca",
+      "notes": "exp-092 N/K-only case-2 specialization passed 4/4 at 83/77/89/85 and 0.999/6.715/0.539/3.708 ms; tied formal best 83.50, contest best link remains #125126; reject tie and restore exact formal-best source.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.50",
+      "rank": "21",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-24T15:39:33+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/125593"
     }
   ],
   "version": 2
