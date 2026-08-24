@@ -1015,6 +1015,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-24T06:02:34+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/124948"
+    },
+    {
+      "candidate_id": "cand-exp-20260824-077-case4-module-full-sort",
+      "claim_id": "claim-f02f842cbb844d5eafe2471801bbf4e6",
+      "commit": "ec9c90cd5c564149e2126aaa306f2fbe399ed992",
+      "evidence": "artifacts/raw/xpuoj/125057",
+      "experiment": "exp-20260824-077",
+      "id": "125057",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/76/89/85; 12 ms total; exp-077 case4 module full-sort improves formal best by 0.25 points",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.00",
+      "rank": "23",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-24T07:41:29+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/125057"
     }
   ],
   "version": 2
