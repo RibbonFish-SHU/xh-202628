@@ -15,7 +15,7 @@ candidate_binary="$build_dir/test-fused-moe-candidate"
 baseline_binary="$build_dir/test-fused-moe-baseline"
 mkdir -p -- "$build_dir" "$C500_RESULTS_DIR"
 
-common_flags=(-O3 -std=c++17 -arch=sm_80 -lineinfo)
+common_flags=(-O3 -std=c++17 -arch=sm_80 -lineinfo -resource-usage)
 {
   printf 'candidate_commit=%s\nbaseline_commit=%s\n' "$C500_CANDIDATE_COMMIT" "$C500_BASELINE_COMMIT"
   printf 'candidate_source_sha256=%s\nbaseline_source_sha256=%s\n' \

@@ -209,6 +209,7 @@ set -e
 [[ "$quota_status" -eq 125 ]]
 grep -q 'compute quota differs' "$base/runs/$quota_id/results/preflight-error.txt"
 [[ ! -e "$base/locks/c500-run-slot.lock" ]]
+grep -q -- '-resource-usage' "$repo_root/scripts/run-c500-fused-moe-paired.sh"
 
 unsafe_workflow="$temp_root/unsafe-workflow"
 cp -a -- "$workflow_fixture" "$unsafe_workflow"
