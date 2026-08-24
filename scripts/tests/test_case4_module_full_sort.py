@@ -117,7 +117,10 @@ class Case4ModuleFullSortTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            launch.count("fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>"), 1
+            launch.count(
+                "fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168>"
+            ),
+            1,
         )
         self.assertEqual(
             launch.count("fused_moe_i8_tn_mma_kernel<false, 0, 0, 0>"),
