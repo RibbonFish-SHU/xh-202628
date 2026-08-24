@@ -1135,6 +1135,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-24T15:39:33+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/125593"
+    },
+    {
+      "candidate_id": "cand-exp-20260825-096-case4-exact-on-formalbest",
+      "claim_id": "claim-b6bd880168b345c085b4084b7166ad0f",
+      "commit": "24d87019bd8407d283ae69c7a532535d997a2e86",
+      "evidence": "artifacts/raw/xpuoj/125737",
+      "experiment": "exp-20260825-096",
+      "id": "125737",
+      "language": "CUDA Maca",
+      "notes": "exp-096 exact case4 dimensions: 4/4 Accepted, cases 83/77/89/85 at 1003 us/7 ms/537 us/3560 us; tied formal best, contest still links #125126; reject tie and restore exact formal-best source",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.50",
+      "rank": "21",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-24T17:55:07+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/125737"
     }
   ],
   "version": 2
