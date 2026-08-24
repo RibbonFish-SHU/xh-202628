@@ -995,6 +995,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-24T04:27:53+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/124841"
+    },
+    {
+      "candidate_id": "cand-exp-20260824-073-global-sort-map",
+      "claim_id": "claim-e3112761942a45269e59075131ade157",
+      "commit": "9c8ce76ed0b431c29da1b4610b0d64e8a8da8605",
+      "evidence": "artifacts/raw/xpuoj/124948",
+      "experiment": "exp-20260824-073",
+      "id": "124948",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/76/89/84; 12 ms total; exp-073 module full-sort map improves formal best by 0.50 points",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.50",
+      "rank": "23",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.00",
+      "status": "Accepted",
+      "submitted_at": "2026-08-24T06:02:34+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/124948"
     }
   ],
   "version": 2
