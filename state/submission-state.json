@@ -1155,6 +1155,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-24T17:55:07+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/125737"
+    },
+    {
+      "candidate_id": "cand-exp-20260825-097-case2-nk-partial-on-exp096",
+      "claim_id": "claim-9dcb283b408d4a22bd1f0a7cf633b4d9",
+      "commit": "3d2ab2418d21bb6a0ad8781cf0d63ab497d91fe7",
+      "evidence": "artifacts/raw/xpuoj/125775",
+      "experiment": "exp-20260825-097",
+      "id": "125775",
+      "language": "CUDA Maca",
+      "notes": "exp-097 case2 NK partial on exp096: 4/4 Accepted, cases 83/77/89/85 at 999 us/7 ms/540 us/3566 us; tied formal best, contest still links #125126; reject tie and restore exact formal-best source",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.50",
+      "rank": "21",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-24T18:29:44+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/125775"
     }
   ],
   "version": 2
