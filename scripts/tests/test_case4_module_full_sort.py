@@ -111,15 +111,19 @@ class Case4ModuleFullSortTests(unittest.TestCase):
         self.assertIn("module_full_sort_launch_grid_x(config)", launch)
         self.assertIn("build_case2_full_expert_sort_map_kernel", launch)
         self.assertEqual(
-            launch.count("fused_moe_i8_tn_mma_kernel<true, 4096, 7168>"), 1
-        )
-        self.assertEqual(
-            launch.count("fused_moe_i8_tn_mma_kernel<true, 0, 0>"), 1
-        )
-        self.assertEqual(
-            launch.count("fused_moe_i8_tn_mma_kernel<false, 0, 0>"),
+            launch.count(
+                "fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>"
+            ),
             1,
         )
+        self.assertEqual(
+            launch.count("fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>"), 1
+        )
+        self.assertEqual(
+            launch.count("fused_moe_i8_tn_mma_kernel<false, 0, 0, 0>"),
+            1,
+        )
+        self.assertNotIn("<true, 32768, 4096, 7168>", launch)
         self.assertNotIn("kFixedEm", launch)
         self.assertNotIn("tile_zero", launch)
         self.assertIn("case2_full_stable_sort_rank(", builder)
