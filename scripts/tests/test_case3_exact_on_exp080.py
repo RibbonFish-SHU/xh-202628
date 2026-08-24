@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-device proof for the case-2-only exact dimensions on exp-080."""
+"""No-device proof for the case-3-only exact dimensions on exp-080."""
 
 from __future__ import annotations
 
@@ -11,15 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "operators" / "fused_moe_i8_tn" / "cuda_maca" / "submission.cu"
-SOURCE_TEXT = SOURCE.read_text(encoding="utf-8")
-HAS_CASE2_EXACT = (
-    "template <bool kUseOutputScratchExpertSort, int kFixedEm, "
-    "int kFixedN, int kFixedK>" in SOURCE_TEXT
-    and "fused_moe_i8_tn_mma_kernel<true, 32768, 4096, 7168>" in SOURCE_TEXT
-)
-CASE1 = (64, 4096, 7168)
+CASE1 = (4096, 4096, 7168)
 CASE2 = (32768, 4096, 7168)
-CASE3 = (64, 7168, 2048)
+CASE3 = (4096, 7168, 2048)
 CASE4 = (32768, 7168, 2048)
 FALLBACK = (384, 2048, 1024)
 PROTECTED_BODY_SHA256 = (
@@ -42,44 +36,39 @@ def function_body(source: str, signature: str) -> str:
 
 
 def dispatch(shape: tuple[int, int, int]) -> tuple[bool, tuple[int, int, int]]:
-    use_case2 = shape == CASE2
-    use_global_sort_map = use_case2 or shape == CASE4
+    use_global_sort_map = shape in (CASE2, CASE4)
     if use_global_sort_map:
-        return True, CASE2 if use_case2 else (0, 0, 0)
-    return False, (0, 0, 0)
+        return True, (0, 0, 0)
+    return False, CASE3 if shape == CASE3 else (0, 0, 0)
 
 
-class Case2ExactOnExp080Tests(unittest.TestCase):
+class Case3ExactOnExp080Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = SOURCE.read_text(encoding="utf-8")
         cls.kernel = function_body(cls.source, "fused_moe_i8_tn_mma_kernel(")
         cls.launch = function_body(cls.source, "static inline void launch(")
 
-    @unittest.skipUnless(HAS_CASE2_EXACT, "case-2 exact dispatch is not present")
-    def test_only_public_case2_uses_fixed_dimensions(self) -> None:
+    def test_only_public_case3_uses_fixed_dimensions(self) -> None:
         expected = {
             CASE1: (False, (0, 0, 0)),
-            CASE2: (True, CASE2),
-            CASE3: (False, (0, 0, 0)),
+            CASE2: (True, (0, 0, 0)),
+            CASE3: (False, CASE3),
             CASE4: (True, (0, 0, 0)),
             FALLBACK: (False, (0, 0, 0)),
         }
         self.assertEqual({shape: dispatch(shape) for shape in expected}, expected)
 
-        selector = function_body(
-            self.source, "use_case2_output_scratch_expert_sort("
-        )
+        selector = function_body(self.source, "use_decode_down_exact_dimensions(")
         self.assertEqual(
             " ".join(selector.split()),
-            "return config.em == 32768 && config.n == 4096 && config.k == 7168;",
+            "return config.em == 4096 && config.n == 7168 && config.k == 2048;",
         )
-        fixed = "fused_moe_i8_tn_mma_kernel<true, 32768, 4096, 7168>"
+        fixed = "fused_moe_i8_tn_mma_kernel<false, 4096, 7168, 2048>"
         self.assertEqual(self.source.count(fixed), 1)
+        self.assertNotIn("<true, 4096", self.source)
         self.assertNotIn("<false, 32768", self.source)
-        self.assertNotIn("<true, 32768, 7168, 2048>", self.source)
 
-    @unittest.skipUnless(HAS_CASE2_EXACT, "case-2 exact dispatch is not present")
     def test_runtime_dimension_carrier_and_dispatch_are_exact(self) -> None:
         template = (
             "template <bool kUseOutputScratchExpertSort, int kFixedEm, "
@@ -98,35 +87,22 @@ class Case2ExactOnExp080Tests(unittest.TestCase):
         )
         self.assertIn("if (use_global_sort_map)", self.launch)
         self.assertIn(
-            "if (use_case2_output_scratch_expert_sort(config))", self.launch
+            "else if (use_decode_down_exact_dimensions(config))", self.launch
+        )
+        self.assertEqual(
+            self.launch.count("fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>"), 1
+        )
+        self.assertEqual(
+            self.launch.count("fused_moe_i8_tn_mma_kernel<false, 0, 0, 0>"), 1
         )
         self.assertEqual(
             self.launch.count(
-                "fused_moe_i8_tn_mma_kernel<true, 32768, 4096, 7168>"
+                "fused_moe_i8_tn_mma_kernel<false, 4096, 7168, 2048>"
             ),
             1,
         )
-        self.assertEqual(
-            self.launch.count("fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>"),
-            1,
-        )
-        self.assertEqual(
-            self.launch.count("fused_moe_i8_tn_mma_kernel<false, 0, 0, 0>"),
-            1,
-        )
 
-    def test_case2_and_case4_ownership_remains_exact(self) -> None:
-        self.assertEqual(8 * 32 * 32, 8192)
-        self.assertEqual(8 * 56 * 32, 14336)
-        self.assertIn("constexpr int kOutputScratchSortGridM = 8;", self.source)
-        self.assertIn(
-            "constexpr int kPrefillDownModuleFullSortGridM = 8;", self.source
-        )
-        self.assertIn("module_full_sort_launch_grid_x(config)", self.launch)
-        self.assertIn("build_case2_full_expert_sort_map_kernel", self.launch)
-
-    @unittest.skipUnless(HAS_CASE2_EXACT, "case-2 exact dispatch is not present")
-    def test_exp080_executable_body_and_scalar_schedule_are_unchanged(self) -> None:
+    def test_exp080_body_payload_and_geometry_are_unchanged(self) -> None:
         protected = self.kernel[self.kernel.index("#define XH_MMA_STAGE_MNKX2") :]
         digest = hashlib.sha256(protected.encode("utf-8")).hexdigest()
         self.assertEqual(digest, PROTECTED_BODY_SHA256)
@@ -137,8 +113,29 @@ class Case2ExactOnExp080Tests(unittest.TestCase):
             for index in range(4):
                 self.assertEqual(protected.count(f"{prefix}{index}"), 4)
         self.assertIsNone(re.search(r"load_[ab]\s*\[", protected))
+        self.assertIn("constexpr int kMmaThreads = 256;", self.source)
+        self.assertIn("constexpr int kMmaSharedBytes =", self.source)
 
-    def test_read_only_abi_and_no_host_copy_or_synchronization(self) -> None:
+    def test_full_sort_paths_remain_runtime_dimensioned(self) -> None:
+        case2_selector = function_body(
+            self.source, "use_case2_output_scratch_expert_sort("
+        )
+        case4_selector = function_body(
+            self.source, "use_prefill_down_module_full_expert_sort("
+        )
+        self.assertEqual(
+            " ".join(case2_selector.split()),
+            "return config.em == 32768 && config.n == 4096 && config.k == 7168;",
+        )
+        self.assertEqual(
+            " ".join(case4_selector.split()),
+            "return config.em == 32768 && config.n == 7168 && config.k == 2048;",
+        )
+        self.assertIn("build_case2_full_expert_sort_map_kernel", self.launch)
+        self.assertIn("module_full_sort_launch_grid_x(config)", self.launch)
+        self.assertNotIn("<true, 32768", self.launch)
+
+    def test_read_only_abi_and_no_host_synchronization(self) -> None:
         start = self.source.index("fused_moe_i8_tn_mma_kernel(")
         opening = self.source.index("{", start)
         signature = self.source[start:opening]
