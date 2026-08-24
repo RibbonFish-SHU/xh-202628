@@ -10,7 +10,7 @@
 - 用户已完成报名、审核通过，已取得赛题二专用 XPU-OJ 账号并成功登录。
 - 用户给出的当前打榜入口：<https://xpuoj.com/contest/12/problem/1>。
 - 已于 2026-08-22 通过用户已登录的 OJ 页面再次只读确认题目为 `1. Agent 推理算子库优化 - Fused MoE i8 tn`，支持 CUDA Maca、Triton、TileLang，限制仍为 10000 ms / 4096 MiB，目标硬件为 C500。详细实时合同快照见 Skill reference；编码和每次提交前仍须复核页面变化。
-- 已完成 50 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳和活动源码是 `#124509` / `adeb4531ada7` 的 device-sorted 8M expert-cluster CUDA Maca 核心，4/4 Accepted、82.50 分；它在原 `#117114` / `8c519e6c1bb5` exact-row A-load 核心上只为 case 2 增加设备端稳定 expert-rank 调度和 scratch cleanup。exp-067 的 staged-load scalarization 组合由 OJ `#124541` 再次 4/4 Accepted、82.50 分但未超过正式最佳，活动源码已精确恢复 `adeb453` blob。
+- 已完成 51 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳和活动源码是 `#124509` / `adeb4531ada7` 的 device-sorted 8M expert-cluster CUDA Maca 核心，4/4 Accepted、82.50 分；它在原 `#117114` / `8c519e6c1bb5` exact-row A-load 核心上只为 case 2 增加设备端稳定 expert-rank 调度和 scratch cleanup。exp-067 的 staged-load scalarization 组合由 OJ `#124541` 再次 4/4 Accepted、82.50 分；exp-070 将同一 device sort 扩展到 prefill down，本地 C500 改善 14.714%，但 OJ `#124841` 仍为 82.50 分（83、74、89、84）。两者均未超过正式最佳，活动源码已按协议精确恢复 `adeb453` blob。
 - 2026-08-24 03:46 核对 contest 12 榜单：当前账号 `muxi2026C2047` 排名 23、最佳分 82.50；最佳版本四个测试点分数为 83、74、89、84，prefill gate-up 首次从 73 跨到 74。
 - 2026-08-23 用户提供了评测配套 MetaX C500，并授权配置连接和专用执行镜像。仓库中只记录 SSH alias `xh-c500`，不记录完整入口或凭据。
 - C500 专用执行目录 `/root/xh-202628-agent` 已创建并核对；它只接收受信 workflow commit 归档和 candidate/baseline submission-source overlay，不含 `.git`，不作为第二工作树。

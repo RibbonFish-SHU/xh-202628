@@ -1,5 +1,5 @@
 {
-  "pending_report": null,
+  "pending_report": "124841",
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -975,6 +975,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-23T20:29:02+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/124541"
+    },
+    {
+      "candidate_id": "cand-exp-20260824-070-prefill-down-cluster",
+      "claim_id": "claim-d1a15063b5fa4d34b3914e7fde4ec3f1",
+      "commit": "1872e1b0db5ff16712e60baa5ed4202cb5cae9d5",
+      "evidence": "artifacts/raw/xpuoj/124841",
+      "experiment": "exp-20260824-070",
+      "id": "124841",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cumulative scoring implies cases 83/74/89/84; 13 ms total; tied formal best #124509, whose contest best link remains active",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "82.50",
+      "rank": "23",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "82.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-24T04:27:53+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/124841"
     }
   ],
   "version": 2
