@@ -45,6 +45,20 @@ static inline int mma_launch_grid_x(const KernelConfig& config) {
         : mma_grid_x(config);
 }
 
+constexpr int kPrefillDownModuleFullSortGridM = 8;
+
+static inline bool use_prefill_down_module_full_expert_sort(
+    const KernelConfig& config
+) {
+    return config.em == 32768 && config.n == 7168 && config.k == 2048;
+}
+
+static inline int module_full_sort_launch_grid_x(const KernelConfig& config) {
+    return use_prefill_down_module_full_expert_sort(config)
+        ? kPrefillDownModuleFullSortGridM
+        : mma_launch_grid_x(config);
+}
+
 __host__ __device__ __forceinline__ int output_scratch_stable_sort_rank(
     const int32_t* expert_ids,
     int logical_tile_m,
@@ -905,8 +919,10 @@ static inline void launch(
 #if XH_FUSED_MOE_MACA
     const dim3 block(kMmaThreads);
     const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
-    const bool use_global_sort_map = use_case2_output_scratch_expert_sort(config);
-    const int grid_x = mma_launch_grid_x(config);
+    const bool use_global_sort_map =
+        use_case2_output_scratch_expert_sort(config)
+        || use_prefill_down_module_full_expert_sort(config);
+    const int grid_x = module_full_sort_launch_grid_x(config);
     const dim3 grid(
         grid_x,
         (config.n + kMmaTileN - 1) / kMmaTileN,
