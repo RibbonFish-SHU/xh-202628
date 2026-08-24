@@ -1035,6 +1035,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-24T07:41:29+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/125057"
+    },
+    {
+      "candidate_id": "cand-exp-20260824-080-case4-sort-scalar-combination",
+      "claim_id": "claim-f8edbd63012a48579920c12dcf897a42",
+      "commit": "2230963fdd9d6394b3b63864500ffab00818b4f0",
+      "evidence": "artifacts/raw/xpuoj/125126",
+      "experiment": "exp-20260824-080",
+      "id": "125126",
+      "language": "CUDA Maca",
+      "notes": "exp-080 exact combination; 4/4 Accepted, cases 83/77/89/85; new formal best and rank 21",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.25",
+      "rank": "21",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.5",
+      "status": "Accepted",
+      "submitted_at": "2026-08-24T08:33:17+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/125126"
     }
   ],
   "version": 2
