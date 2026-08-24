@@ -53,12 +53,6 @@ static inline bool use_prefill_down_module_full_expert_sort(
     return config.em == 32768 && config.n == 7168 && config.k == 2048;
 }
 
-static inline bool use_case4_exact_shape_specialization(
-    const KernelConfig& config
-) {
-    return config.em == 32768 && config.n == 7168 && config.k == 2048;
-}
-
 static inline int module_full_sort_launch_grid_x(const KernelConfig& config) {
     return use_prefill_down_module_full_expert_sort(config)
         ? kPrefillDownModuleFullSortGridM
@@ -243,7 +237,7 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <bool kUseOutputScratchExpertSort, int kFixedEm, int kFixedN, int kFixedK>
+template <bool kUseOutputScratchExpertSort>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -252,22 +246,18 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const float* __restrict__ moe_weights_ptr,
     const int32_t* __restrict__ expert_ids_ptr,
     __nv_bfloat16* __restrict__ out_ptr,
-    int runtime_em,
-    int runtime_n,
-    int runtime_k
+    int em,
+    int n,
+    int k
 ) {
     using namespace cute;
-
-    const int em = kFixedEm == 0 ? runtime_em : kFixedEm;
-    const int n = kFixedN == 0 ? runtime_n : kFixedN;
-    const int k = kFixedK == 0 ? runtime_k : kFixedK;
 
 #define XH_MMA_STAGE_MNKX2(m, nn, kk)                                                             \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk + 1], b_frag[nn][kk + 1], accum[m][nn])
 
 #define XH_LDG_A_STAGE_I(ldgi)                                                                    \
-    load_a[ldgi] = __builtin_mxc_ldg_b128(                                                        \
+    load_a_##ldgi = __builtin_mxc_ldg_b128(                                                       \
         a_base + load_a_row_offset[ldgi] + load_k,                                                \
         0,                                                                                         \
         -1,                                                                                        \
@@ -277,7 +267,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false)
 
 #define XH_LDG_B_STAGE_I(ldgi)                                                                    \
-    load_b[ldgi] = __builtin_mxc_ldg_b128(                                                        \
+    load_b_##ldgi = __builtin_mxc_ldg_b128(                                                       \
         &(global_b(load_b_row[ldgi], load_k, tile_k)),                                            \
         0,                                                                                         \
         -1,                                                                                        \
@@ -328,8 +318,14 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         make_tile(Int<kMmaTileN>{}, Int<kMmaTileK>{}),
         make_coord(tile_n, _));
 
-    MmaLoad128 load_a[kMmaLoadsA];
-    MmaLoad128 load_b[kMmaLoadsB];
+    MmaLoad128 load_a_0;
+    MmaLoad128 load_a_1;
+    MmaLoad128 load_a_2;
+    MmaLoad128 load_a_3;
+    MmaLoad128 load_b_0;
+    MmaLoad128 load_b_1;
+    MmaLoad128 load_b_2;
+    MmaLoad128 load_b_3;
     const int k_head = (k - 1) % kMmaTileK + 1;
     const int remaining_cols = n - tile_n * kMmaTileN;
     const int col_limit = remaining_cols < kMmaTileN ? remaining_cols : kMmaTileN;
@@ -347,12 +343,11 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         const int routed_row = row_base + load_a_row_base + kMmaRowsPerLoad * i;
         load_a_row_offset[i] = routed_row * k;
     }
-#pragma unroll
-    for (uint32_t i = 0; i < kMmaLoadsB; ++i) {
-        const int candidate_col = load_b_row_base + i;
-        load_b_row[i] = candidate_col < col_limit ? candidate_col : col_limit - 1;
-        load_b[i] = __builtin_mxc_ldg_b128_predicator(
-            &(global_b(load_b_row[i], load_k, num_k_tiles - 1)),
+    {
+        const int candidate_col = load_b_row_base;
+        load_b_row[0] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        load_b_0 = __builtin_mxc_ldg_b128_predicator(
+            &(global_b(load_b_row[0], load_k, num_k_tiles - 1)),
             0,
             true,
             true,
@@ -362,17 +357,80 @@ __global__ void fused_moe_i8_tn_mma_kernel(
             k_head,
             MACA_ICMP_SLT);
     }
-#pragma unroll
-    for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
-        load_a[i] = __builtin_mxc_ldg_b128(
-            a_base + load_a_row_offset[i] + load_k,
+    {
+        const int candidate_col = load_b_row_base + 1;
+        load_b_row[1] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        load_b_1 = __builtin_mxc_ldg_b128_predicator(
+            &(global_b(load_b_row[1], load_k, num_k_tiles - 1)),
             0,
-            -1,
             true,
             true,
             false,
-            false);
+            false,
+            load_k,
+            k_head,
+            MACA_ICMP_SLT);
     }
+    {
+        const int candidate_col = load_b_row_base + 2;
+        load_b_row[2] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        load_b_2 = __builtin_mxc_ldg_b128_predicator(
+            &(global_b(load_b_row[2], load_k, num_k_tiles - 1)),
+            0,
+            true,
+            true,
+            false,
+            false,
+            load_k,
+            k_head,
+            MACA_ICMP_SLT);
+    }
+    {
+        const int candidate_col = load_b_row_base + 3;
+        load_b_row[3] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        load_b_3 = __builtin_mxc_ldg_b128_predicator(
+            &(global_b(load_b_row[3], load_k, num_k_tiles - 1)),
+            0,
+            true,
+            true,
+            false,
+            false,
+            load_k,
+            k_head,
+            MACA_ICMP_SLT);
+    }
+    load_a_0 = __builtin_mxc_ldg_b128(
+        a_base + load_a_row_offset[0] + load_k,
+        0,
+        -1,
+        true,
+        true,
+        false,
+        false);
+    load_a_1 = __builtin_mxc_ldg_b128(
+        a_base + load_a_row_offset[1] + load_k,
+        0,
+        -1,
+        true,
+        true,
+        false,
+        false);
+    load_a_2 = __builtin_mxc_ldg_b128(
+        a_base + load_a_row_offset[2] + load_k,
+        0,
+        -1,
+        true,
+        true,
+        false,
+        false);
+    load_a_3 = __builtin_mxc_ldg_b128(
+        a_base + load_a_row_offset[3] + load_k,
+        0,
+        -1,
+        true,
+        true,
+        false,
+        false);
 
     Tensor shared_a_tensor = make_tensor(
         make_smem_ptr(shared_a),
@@ -386,17 +444,20 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     int store_row_a[kMmaLoadsA];
     int store_row_b[kMmaLoadsB];
     const int store_col = (((tid / 8) + (tid % 8)) % 8) * 16;
-#pragma unroll
-    for (uint32_t i = 0; i < kMmaLoadsB; ++i) {
-        store_row_b[i] = tid / 8 + kMmaRowsPerLoad * i;
-        XH_MMA_STS(shared_b_tensor(store_row_b[i], store_col), load_b[i], MmaLoad128);
-    }
+    store_row_b[0] = tid / 8;
+    XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b_0, MmaLoad128);
+    store_row_b[1] = tid / 8 + kMmaRowsPerLoad;
+    XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b_1, MmaLoad128);
+    store_row_b[2] = tid / 8 + kMmaRowsPerLoad * 2;
+    XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b_2, MmaLoad128);
+    store_row_b[3] = tid / 8 + kMmaRowsPerLoad * 3;
+    XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b_3, MmaLoad128);
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
         store_row_a[i] = wave * 32 + lane / 8 + i * 8;
     }
-    XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a[0], MmaLoad128);
-    XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a[1], MmaLoad128);
+    XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a_0, MmaLoad128);
+    XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a_1, MmaLoad128);
 
     MmaInt4 accum[kMmaRows][kMmaCols] = {0};
     int32_t a_frag[kMmaRows][kMmaDepth];
@@ -469,10 +530,10 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(0, 1, 6);
         XH_MMA_STAGE_MNKX2(0, 2, 4);
         XH_MMA_STAGE_MNKX2(0, 2, 6);
-        XH_MMA_STS(shared_a_tensor(store_row_a[2], store_col), load_a[2], MmaLoad128);
+        XH_MMA_STS(shared_a_tensor(store_row_a[2], store_col), load_a_2, MmaLoad128);
         XH_MMA_STAGE_MNKX2(0, 3, 4);
         XH_MMA_STAGE_MNKX2(0, 3, 6);
-        XH_MMA_STS(shared_a_tensor(store_row_a[3], store_col), load_a[3], MmaLoad128);
+        XH_MMA_STS(shared_a_tensor(store_row_a[3], store_col), load_a_3, MmaLoad128);
 
         XH_MMA_STAGE_MNKX2(0, 4, 4);
         XH_LDG_A_STAGE_I(2);
@@ -499,28 +560,28 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(1, 3, 2);
 
         XH_MMA_STAGE_MNKX2(1, 4, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b[0], MmaLoad128);
+        XH_MMA_STS(shared_b_tensor(store_row_b[0], store_col), load_b_0, MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 4, 2);
         XH_MMA_STAGE_MNKX2(1, 5, 0);
         XH_MMA_STAGE_MNKX2(1, 5, 2);
-        XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b[1], MmaLoad128);
+        XH_MMA_STS(shared_b_tensor(store_row_b[1], store_col), load_b_1, MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 6, 0);
         XH_MMA_STAGE_MNKX2(1, 6, 2);
         XH_MMA_STAGE_MNKX2(1, 7, 0);
-        XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b[2], MmaLoad128);
+        XH_MMA_STS(shared_b_tensor(store_row_b[2], store_col), load_b_2, MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 7, 2);
 
         XH_MMA_STAGE_MNKX2(1, 0, 4);
         XH_MMA_STAGE_MNKX2(1, 0, 6);
-        XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b[3], MmaLoad128);
+        XH_MMA_STS(shared_b_tensor(store_row_b[3], store_col), load_b_3, MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 1, 4);
         XH_MMA_STAGE_MNKX2(1, 1, 6);
         XH_MMA_STAGE_MNKX2(1, 2, 4);
-        XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a[0], MmaLoad128);
+        XH_MMA_STS(shared_a_tensor(store_row_a[0], store_col), load_a_0, MmaLoad128);
         XH_MMA_STAGE_MNKX2(1, 2, 6);
         XH_MMA_STAGE_MNKX2(1, 3, 4);
         XH_MMA_STAGE_MNKX2(1, 3, 6);
-        XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a[1], MmaLoad128);
+        XH_MMA_STS(shared_a_tensor(store_row_a[1], store_col), load_a_1, MmaLoad128);
 
         XH_MMA_STAGE_MNKX2(1, 4, 4);
         XH_MMA_STAGE_MNKX2(1, 4, 6);
@@ -581,11 +642,11 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_LDS_B_B128(7, 1);
     XH_MMA_STAGE_MNKX2(0, 1, 6);
     XH_MMA_STAGE_MNKX2(0, 2, 4);
-    XH_MMA_STS(shared_a_tensor(store_row_a[2], store_col), load_a[2], MmaLoad128);
+    XH_MMA_STS(shared_a_tensor(store_row_a[2], store_col), load_a_2, MmaLoad128);
     XH_MMA_STAGE_MNKX2(0, 2, 6);
     XH_MMA_STAGE_MNKX2(0, 3, 4);
     XH_MMA_STAGE_MNKX2(0, 3, 6);
-    XH_MMA_STS(shared_a_tensor(store_row_a[3], store_col), load_a[3], MmaLoad128);
+    XH_MMA_STS(shared_a_tensor(store_row_a[3], store_col), load_a_3, MmaLoad128);
 
     XH_MMA_STAGE_MNKX2(0, 4, 4);
     XH_MMA_STAGE_MNKX2(0, 4, 6);
@@ -941,35 +1002,20 @@ static inline void launch(
     if (use_global_sort_map) {
         build_case2_full_expert_sort_map_kernel
             <<<1, kOutputScratchSortTiles>>>(expert_ids);
-        if (use_case4_exact_shape_specialization(config)) {
-            fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048><<<grid, block>>>(
-                a,
-                b_col_major,
-                scale_a,
-                scale_b,
-                moe_weights,
-                expert_ids,
-                out,
-                config.em,
-                config.n,
-                config.k
-            );
-        } else {
-            fused_moe_i8_tn_mma_kernel<true, 0, 0, 0><<<grid, block>>>(
-                a,
-                b_col_major,
-                scale_a,
-                scale_b,
-                moe_weights,
-                expert_ids,
-                out,
-                config.em,
-                config.n,
-                config.k
-            );
-        }
+        fused_moe_i8_tn_mma_kernel<true><<<grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
     } else {
-        fused_moe_i8_tn_mma_kernel<false, 0, 0, 0><<<grid, block>>>(
+        fused_moe_i8_tn_mma_kernel<false><<<grid, block>>>(
             a,
             b_col_major,
             scale_a,
