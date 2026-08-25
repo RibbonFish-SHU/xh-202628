@@ -1175,6 +1175,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-24T18:29:44+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/125775"
+    },
+    {
+      "candidate_id": "cand-exp-20260826-107-exact-generic-first",
+      "claim_id": "claim-1b207275d67c45aa911ad218a90132d6",
+      "commit": "0ae05c51993d897ac994acadcd9078f438ded8ef",
+      "evidence": "artifacts/raw/xpuoj/127041",
+      "experiment": "exp-20260826-107",
+      "id": "127041",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted; cases 83/77/89/85 at 990us/7ms/533us/3554us; tied formal best #125126, scoreboard best link unchanged; reject tie and restore formal-best source",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.50",
+      "rank": "21",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-25T18:07:47+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/127041"
     }
   ],
   "version": 2
