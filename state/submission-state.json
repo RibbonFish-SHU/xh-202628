@@ -1,5 +1,5 @@
 {
-  "pending_report": null,
+  "pending_report": "128026",
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -1248,6 +1248,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-26T10:16:18+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/127700"
+    },
+    {
+      "candidate_id": "cand-exp-20260826-150-case2-late-a00-a01-pair",
+      "claim_id": "claim-c2ec038690834cf1a55215b3bfe16f1b",
+      "commit": "287eb38a6dda53048e24960eba39879e548fc977",
+      "evidence": "artifacts/raw/xpuoj/128026",
+      "experiment": "exp-20260826-150",
+      "id": "128026",
+      "language": "cuda_maca",
+      "notes": "exp-150 late A00+A01 pair; 4/4 accepted; case scores 84/77/89/85 at 0.961/6.539/0.516/3.562 ms; new formal best +0.25 and rank 20",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.50",
+      "rank": "20",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-26T23:12:57+08:00",
+      "url": "https://xpuoj.com/contest/12/submissions/128026"
     }
   ],
   "version": 2
