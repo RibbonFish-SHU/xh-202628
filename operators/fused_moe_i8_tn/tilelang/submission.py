@@ -8,7 +8,7 @@ _kernel_cache = {}
 
 
 @jit
-def fused_moe_i8_tn_kernel(EM, N, K, E, block_N=128, block_K=128, num_stages=1, threads=256):
+def fused_moe_i8_tn_kernel(EM, N, K, E, block_N=128, block_K=64, num_stages=2, threads=128):
     @T.prim_func
     def kernel(
         A: T.Tensor((EM, K), "int8"),

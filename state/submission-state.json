@@ -1226,6 +1226,26 @@
       "status": "Wrong Answer",
       "submitted_at": "2026-08-26T09:23:04+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/127640"
+    },
+    {
+      "candidate_id": "cand-exp-20260826-141-tilelang-bk128-direct",
+      "claim_id": "claim-2a745643aa454ff78ce86498974d355a",
+      "commit": "ece09c742afcd0dbbbbdc9095760a193dd084a10",
+      "evidence": "artifacts/raw/xpuoj/127700",
+      "experiment": "exp-20260826-141",
+      "id": "127700",
+      "language": "TileLang",
+      "notes": "4/4 Accepted at 64/47/61/45 and 2809us/26ms/2805us/26ms; direct BK128 is correct, isolates exp-140 WA to prefill rank-map path, but is far below CUDA formal best; revert and close TileLang line.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.50",
+      "rank": "21",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "54.25",
+      "status": "Accepted",
+      "submitted_at": "2026-08-26T10:16:18+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/127700"
     }
   ],
   "version": 2
