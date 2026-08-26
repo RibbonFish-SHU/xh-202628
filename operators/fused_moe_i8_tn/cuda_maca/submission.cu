@@ -478,7 +478,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
     __syncthreadshared();
 
-    XH_LDS_A_B128(0, 0);
     XH_LDS_B_B128(0, 0);
     XH_LDS_B_B128(1, 0);
     XH_LDS_B_B128(2, 0);
@@ -489,6 +488,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     for (uint32_t tile_k = 0; tile_k < loop_k_tiles; ++tile_k) {
         XH_LDG_B_STAGE_I(0);
         XH_LDG_B_STAGE_I(1);
+        XH_LDS_A_B128(0, 0);
         XH_MMA_STAGE_MNKX2(0, 0, 0);
         XH_LDS_B_B128(4, 0);
         XH_MMA_STAGE_MNKX2(0, 0, 2);
@@ -507,7 +507,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_LDG_A_STAGE_I(1);
 
         XH_MMA_STAGE_MNKX2(0, 4, 0);
-        XH_LDS_A_B128(0, 1);
         XH_MMA_STAGE_MNKX2(0, 4, 2);
         XH_LDS_B_B128(0, 1);
         XH_MMA_STAGE_MNKX2(0, 5, 0);
@@ -521,6 +520,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(0, 7, 2);
 
         XH_LDS_B_B128(4, 1);
+        XH_LDS_A_B128(0, 1);
         XH_MMA_STAGE_MNKX2(0, 0, 4);
         XH_LDS_B_B128(5, 1);
         XH_MMA_STAGE_MNKX2(0, 0, 6);
@@ -588,7 +588,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         XH_MMA_STAGE_MNKX2(1, 5, 4);
         __syncthreadshared();
         XH_MMA_STAGE_MNKX2(1, 5, 6);
-        XH_LDS_A_B128(0, 0);
         XH_LDS_B_B128(0, 0);
         XH_MMA_STAGE_MNKX2(1, 6, 4);
         XH_LDS_B_B128(1, 0);
@@ -600,6 +599,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     }
 
     int output_row[8];
+    XH_LDS_A_B128(0, 0);
     XH_MMA_STAGE_MNKX2(0, 0, 0);
     XH_LDS_B_B128(4, 0);
     XH_MMA_STAGE_MNKX2(0, 0, 2);
@@ -620,7 +620,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     }
 
     XH_MMA_STAGE_MNKX2(0, 4, 0);
-    XH_LDS_A_B128(0, 1);
     XH_MMA_STAGE_MNKX2(0, 4, 2);
     XH_LDS_B_B128(0, 1);
     XH_MMA_STAGE_MNKX2(0, 5, 0);
@@ -634,6 +633,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_MMA_STAGE_MNKX2(0, 7, 2);
 
     XH_LDS_B_B128(4, 1);
+    XH_LDS_A_B128(0, 1);
     XH_MMA_STAGE_MNKX2(0, 0, 4);
     XH_LDS_B_B128(5, 1);
     XH_MMA_STAGE_MNKX2(0, 0, 6);
