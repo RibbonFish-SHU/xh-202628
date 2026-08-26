@@ -1,6 +1,6 @@
 # XH-202628 比赛长期上下文
 
-最后核对日期：2026-08-26（Asia/Shanghai）
+最后核对日期：2026-08-27（Asia/Shanghai）
 
 ## 1. 当前参赛状态
 
@@ -10,8 +10,8 @@
 - 用户已完成报名、审核通过，已取得赛题二专用 XPU-OJ 账号并成功登录。
 - 用户给出的当前打榜入口：<https://xpuoj.com/contest/12/problem/1>。
 - 已于 2026-08-22 通过用户已登录的 OJ 页面再次只读确认题目为 `1. Agent 推理算子库优化 - Fused MoE i8 tn`，支持 CUDA Maca、Triton、TileLang，限制仍为 10000 ms / 4096 MiB，目标硬件为 C500。详细实时合同快照见 Skill reference；编码和每次提交前仍须复核页面变化。
-- 已完成 64 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳和活动源码是 `#128026` / `287eb38a6dda` 的 CUDA Maca 核心：在原 case-2/case-4 cleanup-free module full-sort 与 staged-load scalarization 上，只把 runtime group-0 A00/A01 LDS 精确后移到首个合法 consumer。两次 C500-local case 2 配对分别改善 `1.6397%/1.6548%`，资源为 `20 stack / 254 MT / 40 ST / 32768 shared / 2 warps`；OJ 4/4 Accepted、83.75 分，四点 `84/77/89/85`，相对 `#125126` 正式最佳提高 0.25。TileLang 诊断 `#127640` / exp-140 的 prefill 排序路径 Wrong Answer，direct `#127700` 虽 4/4 Accepted 但仅 54.25 分；TileLang 线已关闭，NVIDIA 仍停用。
-- 2026-08-26 23:17 核对 contest 12 榜单：当前账号 `muxi2026C2047` 排名 20、最佳分 83.75，最佳链接指向 `#128026`；四个测试点分数为 84、77、89、85，用户核时间为 `0.961/6.539/0.516/3.562 ms`。截图见 `artifacts/raw/xpuoj/128026/contest-summary.png`。
+- 已完成 65 次工作流内 OJ 提交；完整逐次记录见 `state/PROJECT_STATE.md` 和 `state/submission-state.json`。当前最佳和活动源码是 `#128266` / `235a34a22889` 的 CUDA Maca 核心：在 `#128026` 的 case-2/case-4 cleanup-free module full-sort、staged-load scalarization 与 runtime late A00/A01 LDS schedule 上，只为 exact sorted case 4 增加 full-fixed `<true,32768,7168,2048>` clone。C500-local case 4 从 `3.3915` 降至 `3.3210 ms`（`-2.0787%`），两 arms 为 `-2.006%/-2.151%`；fixed clone 资源为 `0 stack / 230 MT / 40 ST / 32768 shared / 2 warps`。OJ 4/4 Accepted、84.00 分，四点 `84/77/89/86`，相对 `#128026` 再提高 0.25。TileLang 线已关闭，NVIDIA 仍停用。
+- 2026-08-27 核对 contest 12 榜单：当前账号 `muxi2026C2047` 排名 19、最佳分 84.00，最佳链接指向 `#128266`；四个测试点分数为 84、77、89、86，用户核时间为 `0.959/7.000/0.517/3.474 ms`。截图见 `artifacts/raw/xpuoj/128266/contest-summary.png`。
 - 2026-08-23 用户提供了评测配套 MetaX C500，并授权配置连接和专用执行镜像。仓库中只记录 SSH alias `xh-c500`，不记录完整入口或凭据。
 - C500 专用执行目录 `/root/xh-202628-agent` 已创建并核对；它只接收受信 workflow commit 归档和 candidate/baseline submission-source overlay，不含 `.git`，不作为第二工作树。
 - C500 当前实测：xcore1000、MACA 3.7.1.5、MXCC 1.0.0 (`d9102a1572`)、driver 3.8.30、wave64、128-byte cache line、32 KiB L1/AP、8 MiB L2。容器实际可见 25% compute slice 和 16000 MiB VRAM。
