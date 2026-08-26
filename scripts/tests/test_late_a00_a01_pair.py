@@ -19,6 +19,67 @@ BASELINE_SHA256 = (
     "762b7581919a9cb75cde0e4732c8ac580ad236f86620f2d3f34c565d7c5a3204"
 )
 
+BASE_TEMPLATE = "template <bool kUseOutputScratchExpertSort>"
+FIXED_TEMPLATE = (
+    "template <bool kUseOutputScratchExpertSort, int kFixedEm, "
+    "int kFixedN, int kFixedK>"
+)
+BASE_PARAMETERS = """    int em,
+    int n,
+    int k
+"""
+FIXED_PARAMETERS = """    int runtime_em,
+    int runtime_n,
+    int runtime_k
+"""
+FIXED_BINDINGS = """    const int em = kFixedEm == 0 ? runtime_em : kFixedEm;
+    const int n = kFixedN == 0 ? runtime_n : kFixedN;
+    const int k = kFixedK == 0 ? runtime_k : kFixedK;
+
+"""
+BASE_SORTED_LAUNCH = """        fused_moe_i8_tn_mma_kernel<true><<<grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+"""
+FIXED_CASE4_SORTED_LAUNCH = """        if (use_prefill_down_module_full_expert_sort(config)) {
+            fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>
+                <<<grid, block>>>(
+                    a,
+                    b_col_major,
+                    scale_a,
+                    scale_b,
+                    moe_weights,
+                    expert_ids,
+                    out,
+                    config.em,
+                    config.n,
+                    config.k
+                );
+        } else {
+            fused_moe_i8_tn_mma_kernel<true, 0, 0, 0><<<grid, block>>>(
+                a,
+                b_col_major,
+                scale_a,
+                scale_b,
+                moe_weights,
+                expert_ids,
+                out,
+                config.em,
+                config.n,
+                config.k
+            );
+        }
+"""
+
 PREHEADER_CANDIDATE = """    __syncthreadshared();
 
     XH_LDS_B_B128(0, 0);
@@ -117,6 +178,22 @@ def reverse_to_baseline(source: str) -> str:
     )
     return replace_once(
         reverted, TAIL_A01_CONSUMER_CANDIDATE, TAIL_A01_CONSUMER_BASELINE
+    )
+
+
+def project_optional_fixed_case4(source: str) -> str:
+    if FIXED_TEMPLATE not in source:
+        return source
+    projected = replace_once(source, FIXED_TEMPLATE, BASE_TEMPLATE)
+    projected = replace_once(projected, FIXED_PARAMETERS, BASE_PARAMETERS)
+    projected = replace_once(projected, FIXED_BINDINGS, "")
+    projected = replace_once(
+        projected, FIXED_CASE4_SORTED_LAUNCH, BASE_SORTED_LAUNCH
+    )
+    return replace_once(
+        projected,
+        "fused_moe_i8_tn_mma_kernel<false, 0, 0, 0>",
+        "fused_moe_i8_tn_mma_kernel<false>",
     )
 
 
@@ -219,7 +296,9 @@ def labeled_vectors(
 class LateA00A01PairTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.source = project_optional_fixed_case4(
+            SOURCE.read_text(encoding="utf-8")
+        )
         cls.baseline = reverse_to_baseline(cls.source)
         cls.kernel = function_body(cls.source, "fused_moe_i8_tn_mma_kernel(")
         cls.baseline_kernel = function_body(

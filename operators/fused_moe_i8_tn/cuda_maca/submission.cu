@@ -237,7 +237,7 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <bool kUseOutputScratchExpertSort>
+template <bool kUseOutputScratchExpertSort, int kFixedEm, int kFixedN, int kFixedK>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -246,11 +246,15 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const float* __restrict__ moe_weights_ptr,
     const int32_t* __restrict__ expert_ids_ptr,
     __nv_bfloat16* __restrict__ out_ptr,
-    int em,
-    int n,
-    int k
+    int runtime_em,
+    int runtime_n,
+    int runtime_k
 ) {
     using namespace cute;
+
+    const int em = kFixedEm == 0 ? runtime_em : kFixedEm;
+    const int n = kFixedN == 0 ? runtime_n : kFixedN;
+    const int k = kFixedK == 0 ? runtime_k : kFixedK;
 
 #define XH_MMA_STAGE_MNKX2(m, nn, kk)                                                             \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
@@ -1002,20 +1006,36 @@ static inline void launch(
     if (use_global_sort_map) {
         build_case2_full_expert_sort_map_kernel
             <<<1, kOutputScratchSortTiles>>>(expert_ids);
-        fused_moe_i8_tn_mma_kernel<true><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
+        if (use_prefill_down_module_full_expert_sort(config)) {
+            fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>
+                <<<grid, block>>>(
+                    a,
+                    b_col_major,
+                    scale_a,
+                    scale_b,
+                    moe_weights,
+                    expert_ids,
+                    out,
+                    config.em,
+                    config.n,
+                    config.k
+                );
+        } else {
+            fused_moe_i8_tn_mma_kernel<true, 0, 0, 0><<<grid, block>>>(
+                a,
+                b_col_major,
+                scale_a,
+                scale_b,
+                moe_weights,
+                expert_ids,
+                out,
+                config.em,
+                config.n,
+                config.k
+            );
+        }
     } else {
-        fused_moe_i8_tn_mma_kernel<false><<<grid, block>>>(
+        fused_moe_i8_tn_mma_kernel<false, 0, 0, 0><<<grid, block>>>(
             a,
             b_col_major,
             scale_a,

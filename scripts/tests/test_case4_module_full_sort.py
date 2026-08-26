@@ -118,7 +118,7 @@ class Case4ModuleFullSortTests(unittest.TestCase):
         )
         self.assertEqual(
             launch.count(
-                "fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168>"
+                "fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>"
             ),
             1,
         )
@@ -127,6 +127,7 @@ class Case4ModuleFullSortTests(unittest.TestCase):
             1,
         )
         self.assertNotIn("<true, 32768, 4096, 7168>", launch)
+        self.assertNotIn("<true, 0, 4096, 7168>", launch)
         self.assertNotIn("kFixedEm", launch)
         self.assertNotIn("tile_zero", launch)
         self.assertIn("case2_full_stable_sort_rank(", builder)
