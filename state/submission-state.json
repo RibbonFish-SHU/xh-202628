@@ -1,5 +1,5 @@
 {
-  "pending_report": null,
+  "pending_report": "127640",
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -1206,6 +1206,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-25T18:07:47+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/127041"
+    },
+    {
+      "candidate_id": "cand-exp-20260826-140-tilelang-bk128-fullsort",
+      "claim_id": "claim-0487dd362e7045498b73cb8b8bd2b632",
+      "commit": "efbb284dc901b8179025734b96cbac5245eb7e8c",
+      "evidence": "artifacts/raw/xpuoj/127640",
+      "experiment": "exp-20260826-140",
+      "id": "127640",
+      "language": "TileLang",
+      "notes": "TileLang BK128 decode cases 1/3 Accepted at 2811/2788 us; prefill sorted cases 2/4 Wrong Answer after 40/39 s; reject prefill rank-map path, preserve direct BK128 evidence",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "83.50",
+      "rank": "21",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "31.25",
+      "status": "Wrong Answer",
+      "submitted_at": "2026-08-26T09:23:04+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/127640"
     }
   ],
   "version": 2
