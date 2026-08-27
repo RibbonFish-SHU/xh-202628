@@ -473,6 +473,8 @@
 
 117. `exp-182` 后对当前 formal-best 做三条只读筛选，均为 `NO-CANDIDATE`，不占用 C500/OJ 槽。case 1 的每 wave 约 `13,039` instructions，达到 `1%` 需约删除 `130` 条；唯一量级足够的 BF16 pack 已被 exp-030/108/113/116 等合法 spelling 的目标证据关闭，其余 metadata、scale、store、地址和 epilogue 上界均低于门槛。case 2 的 current profiler 仍为 1.761 GB global reads、86.88% L2 hit、66.92% MMA duty 和 VLS latency 主导；由 8-wide cluster 的 `8,257,536 B` working set、无 b256/cache-residency/跨 CTA sharing 声明及已关闭的 ownership/scheduling/LDS/BSM families，可证实没有 `>=5%` traffic 或 `>=10%` VLS-stall 的新机制。case 4 的 14,336 CTA / 57,344 wave main 中，固定 clone 已把资源由 `20/254/40` 变为 `0/230/40`；剩余 K16 MMA body 是唯一超过 `1%` 的区块，但 xcore1000 没有受支持的 K32/packed-dot 替代。grid/map bound 固定最多只删约 `0.635%` 下限，store predicate 即使 ST `40 -> 30` 也只改善 `0.0451%`。broad、private-memory 与 I-cache profiler 已分别关闭 VLS 类别外的 spill/代码尺寸路径，当前 profile 不能区分存活机制，故不运行。2026-08-27 04:30 +00:00 的只读 `mx-smi` 显示 device 0 无 process、GPU 0% utilization；当前 MACA 3.7.1 headers 中也未发现宽 MMA、`ldg_b256`、`stg_b128`、cache residency 或 cluster-sharing 新声明，因此没有 C500 算力故障或新 API 证据可重开上述 family。
 
+118. `exp-185` 后按 SDK 中的 `MCTLASS_ENABLE_L2_PREFETCH` 命中重新检查 C500 `/opt/maca-3.7.1/include/mctlass/arch/memory.h:60-220`。该宏在 `defined(__MACA_ARCH__) && defined(__clang__) && defined(__MACA__)` 的 xcore1000 编译条件下固定为 `0`，而所有 `ld.global.L2::128B` 内联汇编又都位于 `#if 0`，实际可达分支只是普通 C++ 解引用；它不是 MACA 的 target-native prefetch/cache-residency primitive。无源码候选、C500 run 或 OJ 操作；保持这条 family 关闭。
+
 ## NVIDIA 执行链路验证
 
 - `exp-20260818-000` / `6020d29b591c`：请求 GPU 0 时检测到已有负载，预检以 125 拒绝；没有启动 CUDA 任务，项目锁已释放。
