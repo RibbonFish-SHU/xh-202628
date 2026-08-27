@@ -8,6 +8,8 @@ import re
 import unittest
 from pathlib import Path
 
+from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "operators" / "fused_moe_i8_tn" / "cuda_maca" / "submission.cu"
@@ -140,7 +142,7 @@ def invocation_lines(source: str, name: str) -> tuple[str, ...]:
 class Case4FixedScoreTierTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.source = reverse_to_formal_best(SOURCE.read_text(encoding="utf-8"))
         cls.formal = reverse_to_formal(cls.source)
         cls.kernel = function_body(cls.source, "fused_moe_i8_tn_mma_kernel(")
         cls.formal_kernel = function_body(

@@ -9,6 +9,8 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
+from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "operators" / "fused_moe_i8_tn" / "cuda_maca" / "submission.cu"
@@ -297,7 +299,7 @@ class LateA00A01PairTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = project_optional_fixed_case4(
-            SOURCE.read_text(encoding="utf-8")
+            reverse_to_formal_best(SOURCE.read_text(encoding="utf-8"))
         )
         cls.baseline = reverse_to_baseline(cls.source)
         cls.kernel = function_body(cls.source, "fused_moe_i8_tn_mma_kernel(")

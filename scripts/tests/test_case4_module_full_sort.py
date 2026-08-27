@@ -7,6 +7,8 @@ import itertools
 import unittest
 from pathlib import Path
 
+from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "operators" / "fused_moe_i8_tn" / "cuda_maca" / "submission.cu"
@@ -87,7 +89,7 @@ class Case4ModuleFullSortTests(unittest.TestCase):
         self.assertEqual(pattern_count, 9840)
 
     def test_dispatch_uses_the_existing_module_map_without_cleanup(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8")
+        source = reverse_to_formal_best(SOURCE.read_text(encoding="utf-8"))
         case2_selector = function_body(
             source, "use_case2_output_scratch_expert_sort("
         )
