@@ -208,7 +208,7 @@
 | Agent OJ 提交次数 | 66 | 新增 `#128452` CUDA Maca Accepted/84.00/exp-180；四点 84/77/89/86，已 finalized 并释放槽位；与 formal best 同分，排名仍 19 |
 | 待向用户报告的提交 | 3 | `#128026`、`#128266`、`#128452` 均已 finalized、证据完整、槽位释放；因静默连续模式保留为 delayed report，下一次用户状态询问或任务结束后标记 reported |
 | 并行编排工作流 | c500-native | Main Agent 统一管理隔离 Subagent、唯一 C500 ABBA 验证槽和唯一 XPU-OJ active claim |
-| 当前并行批次 | batch-20260827-48-closed | `exp-180` 通过全部 C500 门槛并完成一次受控 OJ，但只复现 84.00 formal-best 分数，已拒绝 tie 并恢复 exact `#128266` source。随后 case 1/2/3/4 四条独立只读 feasibility 线均按精确 traffic/instruction/resource 模型返回 `NO-CANDIDATE`；现有 profiler 数据也没有可区分两个尚未关闭机制的需求。下一实验只有在新机制静态证明可删至少 `1%` main instructions、减少至少 `5%` DNOC/global-read，或合法降低约 `10%` normalized VLS stall 时才分配；不进行 blind replay。 |
+| 当前并行批次 | batch-20260827-49-closed | `exp-180` 通过全部 C500 门槛并完成一次受控 OJ，但只复现 84.00 formal-best 分数，已拒绝 tie 并恢复 exact `#128266` source。随后 case 1/2/3/4 四条独立只读 feasibility 线均按精确 traffic/instruction/resource 模型返回 `NO-CANDIDATE`。`exp-181` 额外完成 exact case-3 fixed-N/K existing-carrier B-address 的 source-ready、36/36 无设备测试和独立安全审计，但 xcore1000 IR preflight 证明稳态 B-load add/extend/GEP 链仍在，无法支持所需至少 `1%` 净删指令；已在 C500 前拒绝，不 build/time/integrate/enqueue/OJ。现有 profiler 数据仍没有可区分两个尚未关闭机制的需求。下一实验只有在新机制静态证明可删至少 `1%` main instructions、减少至少 `5%` DNOC/global-read，或合法降低约 `10%` normalized VLS stall 时才分配；不进行 blind replay。 |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
 机器可读当前门禁见 `state/c500-execution.json`；`state/remote-execution.json` 仅保留已停用 NVIDIA 历史配置。
