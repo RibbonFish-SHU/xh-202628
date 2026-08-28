@@ -1,5 +1,5 @@
 {
-  "pending_report": "130656",
+  "pending_report": null,
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -1362,13 +1362,14 @@
       "experiment": "exp-20260829-208",
       "id": "130656",
       "language": "CUDA Maca",
+      "message_ref": "user-update-20260829-status-130656",
       "notes": "4/4 correct; cases 86/72/89/85 at 0.811/8.625/0.503/3.735 ms; reject and restore formal-best.",
       "operator": "Fused MoE i8 tn",
       "previous_score": "84.75",
       "rank": "n/a",
-      "report_summary": null,
-      "reported_at": null,
-      "reported_to_user": false,
+      "report_summary": "OJ 130656: commit 96f2bf504237, CUDA Maca, 4/4 Accepted, score 83.00, cases 86/72/89/85; rejected after C500 -0.208873% failed to reproduce and restored 84.75 formal best.",
+      "reported_at": "2026-08-28T17:35:39+00:00",
+      "reported_to_user": true,
       "score": "83.00",
       "status": "Accepted",
       "submitted_at": "2026-08-28T17:20:03+00:00",
