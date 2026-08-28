@@ -538,6 +538,8 @@
 
 140. `exp-20260829-208` / tested `f8f794a40fe6bd8e96d9fb4162084a2d53a43e84` / integrated+queue `96f2bf504237996c75a17647a1dbcfb79f214947` 组合 exp-204 histogram+packed map 与 exact-case2 CTA/row-metadata/column-scale/store 无谓词化。C500 build、3/3 correctness、完整 regression、integrity 与 `31/31` manifest 全过；case2 `5.9845 -> 5.9720 ms`（`-0.208873%`），两 candidate arms 均为 `5.972 ms`，main ST resource `40 -> 30`。按排行榜优先执行 OJ `#130656`，终态 4/4 Accepted、83.00 分，四点 `86/72/89/85`、时间 `0.811/8.625/0.503/3.735 ms`，低于 84.75 正式最佳。controller 已 finalized；候选拒绝，源码精确恢复 formal blob `48704a2870975c3990f4681089b1a4efc35d99fa`。
 
+141. `exp-20260829-209` / tested `a662731f1517eab24162a7d1c911981c7cf031f2` / queue tip `dc64928c36153d0925c45c69f67d008e754b40e0` 仅从 exact decode m4 路径删除保证为真的 CTA、A/B、row-metadata、scale 与 store 谓词/边界 clamp；K loop、BSM destinations/sources/request count、dummy requests、arrival/barrier、LDS/MMA 顺序、case2/4 与 ABI 不变。local focused/workflow `28/28`、detached exact BSM 审计与 trusted C500 双臂 build、3/3 correctness、完整 regression、sampled/read-only、integrity、`31/31` manifest 全过；m4 资源从 `0/256/52/65536` 改善为 `0/254/28/65536`。ABBA cases1/2/3/4 为 `0.8340->0.8275`（`-0.779376%`）、`5.9790->5.9815`（`+0.041813%`）、`0.5175->0.5155`（`-0.386473%`）、`3.3205->3.3255 ms`（`+0.150580%`）。case1 升档至少需约 `5.27%`、保守按 `5.4%`，该候选没有通往 85.50 的可信榜分机会；controller 已拒绝且未提交 OJ，正式最佳 source blob 保持 `48704a2870975c3990f4681089b1a4efc35d99fa`。standalone m4 exact-predicate/epilogue cleanup 关闭，后继必须改变 decode 主循环下界。
+
 ## NVIDIA 执行链路验证
 
 - `exp-20260818-000` / `6020d29b591c`：请求 GPU 0 时检测到已有负载，预检以 125 拒绝；没有启动 CUDA 任务，项目锁已释放。
