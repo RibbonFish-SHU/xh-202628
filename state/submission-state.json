@@ -1311,6 +1311,27 @@
       "status": "Accepted",
       "submitted_at": "2026-08-27T02:14:03+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/128452"
+    },
+    {
+      "candidate_id": "cand-exp-20260828-201-sync-m4-hybrid",
+      "claim_id": "claim-74686d2cfe814fdc934c3a6fb49d643d",
+      "commit": "c1ed103ba9ee3936467fefe54010ad0d1afe9bbc",
+      "evidence": "artifacts/raw/xpuoj/130428",
+      "experiment": "exp-20260828-201",
+      "id": "130428",
+      "language": "CUDA Maca",
+      "message_ref": "chat-20260828-user-status-after-130428",
+      "notes": "Hybrid synchronous runtime m4 for decode and formal-best prefill; cases 86/77/89/86; timings 0.801/6.573/0.497/3.498 ms; new formal best",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.00",
+      "rank": "n/a",
+      "report_summary": "Accepted 84.50; cases 86/77/89/86; new formal best reported to user",
+      "reported_at": "2026-08-28T13:38:21+00:00",
+      "reported_to_user": true,
+      "score": "84.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-28T13:23:13+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/130428"
     }
   ],
   "version": 2
