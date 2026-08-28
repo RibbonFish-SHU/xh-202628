@@ -21,6 +21,20 @@ struct KernelConfig {
     int k;
 };
 
+#if XH_FUSED_MOE_MACA
+namespace sync_m4 {
+static inline void launch_decode(
+    const int8_t* a,
+    const int8_t* b_col_major,
+    const float* scale_a,
+    const float* scale_b,
+    const float* moe_weights,
+    const int32_t* expert_ids,
+    __nv_bfloat16* out,
+    const KernelConfig& config);
+}  // namespace sync_m4
+#endif
+
 static inline int mma_grid_x(const KernelConfig& config) {
     constexpr int kNumExperts = 256;
     constexpr int kTileRows = 128;
@@ -992,6 +1006,13 @@ static inline void launch(
     const KernelConfig& config
 ) {
 #if XH_FUSED_MOE_MACA
+    if (config.em == 4096
+        && ((config.n == 4096 && config.k == 7168)
+            || (config.n == 7168 && config.k == 2048))) {
+        sync_m4::launch_decode(
+            a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config);
+        return;
+    }
     const dim3 block(kMmaThreads);
     const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
     const bool use_global_sort_map =
@@ -1098,4 +1119,561 @@ extern "C" void run_kernel(
     xh_fused_moe::launch(
         a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config);
 }
+#endif
+
+#if XH_FUSED_MOE_MACA
+
+// This component incorporates a modified mcTlass fused-MoE kernel.
+// mcTlass is licensed under Mulan PSL v2. See the repository LICENSE and
+// http://license.coscl.org.cn/MulanPSL2 for the license terms.
+// Provenance: exp-20260828-199 tested commit 6e498c406d60651003bf2097affd6acf53798283.
+#define arrive_gvmcnt(count) __builtin_mxc_arrive(64 + count);
+#define arrive_bsmcnt(count) __builtin_mxc_arrive(4096 + 128 * count);
+
+namespace xh_fused_moe {
+namespace sync_m4 {
+
+using namespace cute;
+// ---- types (mirrors the 2stage/895 kernel) ----
+struct BatchedGemmCoord { int m_,n_,k_,batch_;
+    BatchedGemmCoord() {}
+    BatchedGemmCoord(int m,int n,int k,int b):m_(m),n_(n),k_(k),batch_(b){}
+    int m()const{return m_;} int n()const{return n_;} int k()const{return k_;}
+};
+struct MoeParams {
+    int *expert_ids; int *token_ids; int32_t EM; int32_t topk; bool mul_weight;
+    MoeParams(int*e,int*tid,int32_t em,int32_t tk,bool mw)
+        :expert_ids(e),token_ids(tid),EM(em),topk(tk),mul_weight(mw){}
+};
+struct EpilogueOutputOp {
+    static constexpr bool MUL_WEIGHTS = true;
+    const float *scale_a_, *scale_b_, *moe_weights_;
+    EpilogueOutputOp(const float*sa,const float*sb,const float*mw):scale_a_(sa),scale_b_(sb),moe_weights_(mw){}
+};
+
+// ---- constants (from the _m4 variant) ----
+using T = int8_t;
+using Tc = maca_bfloat16;
+using LdgType = __NATIVE_VECTOR__(4, int32_t);
+using LdsType = LdgType;
+using ABType = int32_t;
+using AccumType = __NATIVE_VECTOR__(4, int32_t);
+using INT1 = __NATIVE_VECTOR__(1, int32_t);
+using INT4 = __NATIVE_VECTOR__(4, int32_t);
+using FLOAT2 = __NATIVE_VECTOR__(2, float);
+using FLOAT4 = __NATIVE_VECTOR__(4, float);
+using StgType = __NATIVE_VECTOR__(2, int32_t);
+
+constexpr int kTileM = 128;
+constexpr int kTileN = 128;
+constexpr int kTileK = 256;
+constexpr int kStage = 4;
+constexpr int kThreadNum = 256;
+constexpr int kWarpSize = 64;
+constexpr int kWaveNum = kThreadNum / kWarpSize;     // 4
+constexpr int kWaveM = 2;
+constexpr int kWaveN = kWaveNum / kWaveM;            // 2
+constexpr int kABSize = kTileK * kTileN;             // 256*128
+constexpr int kLdgThreadMN = 4;
+constexpr int kLdgThreadK = 16;
+constexpr int kLdgSize = sizeof(LdgType) * kThreadNum;          // 4096
+constexpr int kLdgSizePerWave = kLdgSize / kWaveNum;            // 1024
+constexpr int kLdgNum = kABSize * sizeof(T) / kLdgSize;         // 8
+constexpr int kLdgNumPerStage = kLdgNum / kStage;               // 2
+constexpr int kLdgNStride = kTileN / kLdgNumPerStage;           // 64
+constexpr int kMmaThreadMN = 16;
+constexpr int kMmaThreadK = 4;
+constexpr int kLdsNumPerThread = sizeof(LdsType) / sizeof(T);   // 16
+constexpr int kLdsNumPerK = kTileK / kLdsNumPerThread / kMmaThreadK; // 4
+constexpr int kLdsRowStride = kMmaThreadMN * kWaveM;            // 32
+constexpr int kLdsColStride = kMmaThreadMN * kWaveN;            // 32
+
+struct Arguments {
+    BatchedGemmCoord problem_size;
+    EpilogueOutputOp output_op;
+    const void *ptr_A, *ptr_B; void *ptr_C; MoeParams moe_params;
+    Arguments(BatchedGemmCoord ps, EpilogueOutputOp oo, const void*A, const void*B, void*C, MoeParams mp)
+        : problem_size(ps), output_op(oo), ptr_A(A), ptr_B(B), ptr_C(C), moe_params(mp) {}
+};
+
+// ---- device-side macros (verbatim from the _m4, with cp_async_fenc -> asm fence) ----
+#define CVT_F32_TO_BF16(dst, src0, src1)                                                          \
+    src0 = ((src0 >> 16) & 1) + src0 + 0x7fff;                                                    \
+    src1 = ((src1 >> 16) & 1) + src1 + 0x7fff;                                                    \
+    dst  = __builtin_mxc_byte_perm(src0, src1, 0x03020706);
+
+#define ARRIVE_GVM_BSM_BARRIER(gvmcnt, bsmcnt)                                                    \
+    arrive_gvmcnt(gvmcnt);                                                                        \
+    arrive_bsmcnt(bsmcnt);                                                                        \
+    __builtin_mxc_barrier_inst();
+
+#define LDS(dst, src, ldstype)                                                                    \
+    asm(";--------------");                                                                       \
+    *reinterpret_cast<ldstype *>(&(dst)) = *reinterpret_cast<ldstype *>(&(src));                  \
+    asm(";--------------");
+
+#define LDS_OFS(dst, src, ofs, ldstype)                                                           \
+    asm volatile("" ::: "memory");                                                                \
+    *reinterpret_cast<ldstype *>(&(dst)) = *reinterpret_cast<ldstype *>(&(src) + (ofs));          \
+    asm volatile("" ::: "memory");
+
+#define MMA_STAGE_MNKx2(m, n, k, i)                                                               \
+    accum[m][n] = __builtin_mxc_mma_16x16x16i8(a[m][k][i*2],     b[n][k][i*2],     accum[m][n]);  \
+    accum[m][n] = __builtin_mxc_mma_16x16x16i8(a[m][k][i*2+1],   b[n][k][i*2+1],   accum[m][n]);
+
+#define LDG_BSM_A_TILE_STAGE_I(stage, i)                                                          \
+    __builtin_mxc_ldg_b128_bsm_predicator(                                                        \
+        bsm_ldgA + kLdgSize * (stage * kLdgNumPerStage + i),                                      \
+        Aaddr + ldgA_offs[stage][i],                                                              \
+        0, true, true, false, false,                                                              \
+        ldg_a_offs_m[stage][i],                                                                   \
+        EM, MACA_ICMP_SLT);
+
+#define LDG_BSM_B_TILE_STAGE_I(stage, i)                                                          \
+    __builtin_mxc_ldg_b128_bsm(bsm_ldgB + kLdgSize * (stage * kLdgNumPerStage + i),               \
+                               &(gB(ldg_b_offs_n[stage][i], ldg_k, tilek)),                       \
+                               0, -1, true, true, false, false);
+
+__global__ void direct_moe_kernel_m4(Arguments args) {
+    int *expert_ids_ptr = args.moe_params.expert_ids;
+    int *token_ids_ptr = args.moe_params.token_ids;
+    const int EM = args.moe_params.EM;
+    const int N = args.problem_size.n_;
+    const int K = args.problem_size.k_;
+
+    int tidx    = threadIdx.x;
+    int bidx    = blockIdx.x + blockIdx.z * gridDim.x;
+    int bidy    = blockIdx.y;
+    int wave_id = tidx / 64;
+
+    __shared__ T smem[(kABSize + kABSize)];  // 64 KB: A(32KB) + B(32KB), single buffer
+    uint8_t *bsm_ldgA = (uint8_t*)smem + kLdgSizePerWave * wave_id;
+    uint8_t *bsm_ldgB = (uint8_t*)smem + kABSize + kLdgSizePerWave * wave_id;
+    T *smem_A = (T*)smem;
+    T *smem_B = smem_A + kABSize;
+
+    if (bidx * kTileM >= EM) { return; }
+
+    int group_idx = expert_ids_ptr[bidx];
+    int prev_m    = bidx * kTileM;
+    T *Baddr = (T *)args.ptr_B + uint64_t(group_idx) * N * K;
+
+    Tensor tB = make_tensor(make_gmem_ptr(Baddr), make_shape(N, K), make_stride(K, Int<1>{}));
+    Tensor gB = local_tile(tB, make_tile(Int<kTileN>{}, Int<kTileK>{}), make_coord(bidy, _));
+    Tensor sA = make_tensor(make_smem_ptr(smem_A), make_shape(Int<kTileM>{}, Int<kTileK>{}), make_stride(Int<kTileK>{}, Int<1>{}));
+    Tensor sB = make_tensor(make_smem_ptr(smem_B), make_shape(Int<kTileN>{}, Int<kTileK>{}), make_stride(Int<kTileK>{}, Int<1>{}));
+
+    int ldg_a_offs_m[kStage][kLdgNumPerStage];
+    int ldg_b_offs_n[kStage][kLdgNumPerStage];
+    int ldgA_offs[kStage][kLdgNumPerStage];
+    int lds_k[kLdsNumPerK], asld[kLdsNumPerK], bsld[kLdsNumPerK];
+    ABType a[kStage][kLdsNumPerK][4];
+    ABType b[kStage][kLdsNumPerK][4];
+    AccumType accum[kStage][kStage] = {0};
+
+    int col_limit = min(kTileN, N - bidy * kTileN);
+    int ldg_k      = ((tidx % kLdgThreadK) ^ (tidx / kLdgThreadK)) * (sizeof(LdgType) / sizeof(T));
+    int ldg_n_base = tidx / kLdgThreadK * kStage;
+    int ldg_m_base = tidx / kLdgThreadK;
+    int k_head     = (K - 1) % kTileK + 1;
+    int num_tile_k = (K + kTileK - 1) / kTileK;
+
+    // a is PRE-EXPANDED to routed rows, so we address a[r] directly (no token_ids//topk
+    // gather). BUT the original _m4's gvmcnt/bsmcnt barriers are tuned for a prologue
+    // that issues 8 ldg_b32(token_ids) + 16 ldg_b128_bsm. Removing the 8 ldg_b32 breaks
+    // the barrier balance and deadlocks the 4-stage pipeline (confirmed on the OJ: 28s
+    // hang + driver fault). So we STILL issue those 8 ldg_b32(token_ids) to keep the
+    // arrival counts exact, then OVERWRITE ldg_a_offs_m with the direct routed row.
+    #pragma unroll
+    for (uint32_t stagei = 0; stagei < kStage; ++stagei) {
+        #pragma unroll
+        for (uint32_t ldgi = 0; ldgi < kLdgNumPerStage; ++ldgi) {
+            int idx_row_a = ldg_m_base + stagei * 32 + ldgi * 16;
+            // Issue the load and force it to execute (volatile use) so it counts
+            // toward gvmcnt — the result is unused because a is pre-expanded.
+            INT1 _tok = __builtin_mxc_ldg_b32(
+                token_ids_ptr + idx_row_a + prev_m, 0, -1, true, true, false, false);
+            volatile uint32_t _keep = ((const uint32_t *)&_tok)[0];
+            (void)_keep;
+            ldg_a_offs_m[stagei][ldgi] = idx_row_a + prev_m;  // direct routed row
+        }
+    }
+    T *Aaddr = (T *)args.ptr_A + (num_tile_k - 1) * kTileK;
+    #pragma unroll
+    for (uint32_t stagei = 0; stagei < kStage; ++stagei) {
+        #pragma unroll
+        for (uint32_t ldgi = 0; ldgi < kLdgNumPerStage; ++ldgi) {
+            // ADAPTED: direct routed-row*K (no token_id/topk).
+            ldgA_offs[stagei][ldgi] = ldg_a_offs_m[stagei][ldgi] * K + ldg_k;
+            __builtin_mxc_ldg_b128_bsm_predicator(
+                bsm_ldgA + kLdgSize * (stagei * kLdgNumPerStage + ldgi),
+                Aaddr + ldgA_offs[stagei][ldgi],
+                0, true, true, false, false,
+                (ldg_k < k_head) && (ldg_a_offs_m[stagei][ldgi] < EM),
+                1, MACA_ICMP_EQ);
+        }
+        #pragma unroll
+        for (uint32_t ldgi = 0; ldgi < kLdgNumPerStage; ++ldgi) {
+            ldg_b_offs_n[stagei][ldgi] = min(ldg_n_base + stagei + ldgi * kLdgNStride, col_limit - 1);
+            __builtin_mxc_ldg_b128_bsm_predicator(
+                bsm_ldgB + kLdgSize * (stagei * kLdgNumPerStage + ldgi),
+                &(gB(ldg_b_offs_n[stagei][ldgi], ldg_k, num_tile_k - 1)),
+                0, true, true, false, false, ldg_k, k_head, MACA_ICMP_SLT);
+        }
+    }
+
+    int lds_mn     = tidx % kMmaThreadMN;
+    int lds_m_base = lds_mn + (wave_id / 2) * kMmaThreadMN;
+    int lds_n_base = lds_mn + (wave_id % 2) * kMmaThreadMN;
+    #pragma unroll
+    for (uint32_t i = 0; i < kLdsNumPerK; ++i) {
+        lds_k[i] = ((kMmaThreadK * i + (tidx % kWarpSize) / kMmaThreadMN) ^ lds_mn) * kLdsNumPerThread;
+        asld[i] = lds_m_base * kTileK + lds_k[i];
+        bsld[i] = lds_n_base * kTileK + lds_k[i];
+    }
+
+    arrive_gvmcnt(2 * kLdgNumPerStage * (kStage - 1));
+    __builtin_mxc_barrier_inst();
+    #pragma unroll
+    for (uint32_t k = 0; k < kLdsNumPerK; ++k) { LDS_OFS(a[0][k], smem_A[asld[k]], 0 * kLdsRowStride * kTileK, LdsType); }
+    #pragma unroll
+    for (uint32_t k = 0; k < kLdsNumPerK; ++k) { LDS_OFS(b[0][k], smem_B[bsld[k]], 0 * kLdsColStride * kTileK, LdsType); }
+    ARRIVE_GVM_BSM_BARRIER(2 * kLdgNumPerStage * (kStage - 2), 0);
+    #pragma unroll
+    for (uint32_t k = 0; k < kLdsNumPerK; ++k) { LDS_OFS(a[1][k], smem_A[asld[k]], 1 * kLdsRowStride * kTileK, LdsType); }
+    #pragma unroll
+    for (uint32_t k = 0; k < kLdsNumPerK; ++k) { LDS_OFS(b[1][k], smem_B[bsld[k]], 1 * kLdsColStride * kTileK, LdsType); }
+
+    int loop_tile_k = num_tile_k - 1;
+    Aaddr = (T *)args.ptr_A;
+    int tilek = num_tile_k - 1;  // bound name used by LDG_BSM_B macro
+    for (uint32_t tilek_iter = 0; tilek_iter < loop_tile_k; ++tilek_iter) {
+        tilek = tilek_iter;  // LDG_BSM_B loads gB(...,tilek) = current src tile for this stage
+        // ---- stage0 MMA ----
+        MMA_STAGE_MNKx2(0, 0, 0, 0); LDG_BSM_A_TILE_STAGE_I(0, 0);
+        MMA_STAGE_MNKx2(0, 0, 0, 1);
+        MMA_STAGE_MNKx2(0, 0, 1, 0); MMA_STAGE_MNKx2(0, 0, 1, 1);
+        MMA_STAGE_MNKx2(0, 0, 2, 0); MMA_STAGE_MNKx2(0, 0, 2, 1);
+        MMA_STAGE_MNKx2(0, 0, 3, 0); MMA_STAGE_MNKx2(0, 0, 3, 1);
+        // ---- stage1 MMA ----
+        MMA_STAGE_MNKx2(1, 0, 0, 0); LDG_BSM_A_TILE_STAGE_I(0, 1);
+        MMA_STAGE_MNKx2(1, 0, 0, 1);
+        MMA_STAGE_MNKx2(1, 0, 1, 0); MMA_STAGE_MNKx2(1, 0, 1, 1);
+        MMA_STAGE_MNKx2(1, 0, 2, 0); MMA_STAGE_MNKx2(1, 0, 2, 1);
+        MMA_STAGE_MNKx2(1, 0, 3, 0);
+        ARRIVE_GVM_BSM_BARRIER(2 * kLdgNumPerStage * (kStage - 3) + 2, 0);
+        MMA_STAGE_MNKx2(1, 0, 3, 1);
+        LDS_OFS(a[2][0], smem_A[asld[0]], 2 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(0, 1, 0, 0); LDG_BSM_B_TILE_STAGE_I(0, 0);
+        MMA_STAGE_MNKx2(0, 1, 0, 1);
+        LDS_OFS(a[2][1], smem_A[asld[1]], 2 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 1, 0, 0); MMA_STAGE_MNKx2(1, 1, 0, 1);
+        LDS_OFS(a[2][2], smem_A[asld[2]], 2 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(0, 1, 1, 0); MMA_STAGE_MNKx2(0, 1, 1, 1);
+        LDS_OFS(a[2][3], smem_A[asld[3]], 2 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 1, 1, 0); MMA_STAGE_MNKx2(1, 1, 1, 1);
+        LDS_OFS(b[2][0], smem_B[bsld[0]], 2 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(0, 1, 2, 0); LDG_BSM_B_TILE_STAGE_I(0, 1);
+        MMA_STAGE_MNKx2(0, 1, 2, 1);
+        LDS_OFS(b[2][1], smem_B[bsld[1]], 2 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 1, 2, 0); MMA_STAGE_MNKx2(1, 1, 2, 1);
+        LDS_OFS(b[2][2], smem_B[bsld[2]], 2 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(0, 1, 3, 0); MMA_STAGE_MNKx2(0, 1, 3, 1);
+        LDS_OFS(b[2][3], smem_B[bsld[3]], 2 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 1, 3, 0); MMA_STAGE_MNKx2(1, 1, 3, 1);
+        // ---- stage2 MMA ----
+        MMA_STAGE_MNKx2(2, 0, 0, 0); LDG_BSM_A_TILE_STAGE_I(1, 0);
+        MMA_STAGE_MNKx2(2, 0, 0, 1);
+        MMA_STAGE_MNKx2(2, 1, 0, 0); MMA_STAGE_MNKx2(2, 1, 0, 1);
+        MMA_STAGE_MNKx2(2, 0, 1, 0); MMA_STAGE_MNKx2(2, 0, 1, 1);
+        MMA_STAGE_MNKx2(2, 1, 1, 0); MMA_STAGE_MNKx2(2, 1, 1, 1);
+        MMA_STAGE_MNKx2(2, 0, 2, 0); LDG_BSM_A_TILE_STAGE_I(1, 1);
+        MMA_STAGE_MNKx2(2, 0, 2, 1);
+        MMA_STAGE_MNKx2(2, 1, 2, 0);
+        ARRIVE_GVM_BSM_BARRIER(2 * kLdgNumPerStage * (kStage - 4) + 6, 0);
+        MMA_STAGE_MNKx2(2, 1, 2, 1);
+        LDS_OFS(a[3][0], smem_A[asld[0]], 3 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 0, 3, 0); MMA_STAGE_MNKx2(2, 0, 3, 1);
+        LDS_OFS(a[3][1], smem_A[asld[1]], 3 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 1, 3, 0); MMA_STAGE_MNKx2(2, 1, 3, 1);
+        LDS_OFS(a[3][2], smem_A[asld[2]], 3 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(0, 2, 0, 0); LDG_BSM_B_TILE_STAGE_I(1, 0);
+        MMA_STAGE_MNKx2(0, 2, 0, 1);
+        LDS_OFS(a[3][3], smem_A[asld[3]], 3 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 2, 0, 0); MMA_STAGE_MNKx2(1, 2, 0, 1);
+        LDS_OFS(b[3][0], smem_B[bsld[0]], 3 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 2, 0, 0); MMA_STAGE_MNKx2(2, 2, 0, 1);
+        LDS_OFS(b[3][1], smem_B[bsld[1]], 3 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(0, 2, 1, 0); MMA_STAGE_MNKx2(0, 2, 1, 1);
+        LDS_OFS(b[3][2], smem_B[bsld[2]], 3 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 2, 1, 0); LDG_BSM_B_TILE_STAGE_I(1, 1);
+        MMA_STAGE_MNKx2(1, 2, 1, 1);
+        LDS_OFS(b[3][3], smem_B[bsld[3]], 3 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 2, 1, 0); MMA_STAGE_MNKx2(2, 2, 1, 1);
+        MMA_STAGE_MNKx2(0, 2, 2, 0); MMA_STAGE_MNKx2(0, 2, 2, 1);
+        MMA_STAGE_MNKx2(1, 2, 2, 0); MMA_STAGE_MNKx2(1, 2, 2, 1);
+        MMA_STAGE_MNKx2(2, 2, 2, 0); LDG_BSM_A_TILE_STAGE_I(2, 0);
+        MMA_STAGE_MNKx2(2, 2, 2, 1);
+        MMA_STAGE_MNKx2(0, 2, 3, 0); MMA_STAGE_MNKx2(0, 2, 3, 1);
+        MMA_STAGE_MNKx2(1, 2, 3, 0); MMA_STAGE_MNKx2(1, 2, 3, 1);
+        MMA_STAGE_MNKx2(2, 2, 3, 0); MMA_STAGE_MNKx2(2, 2, 3, 1);
+        // ---- stage3 MMA ----
+        MMA_STAGE_MNKx2(0, 3, 0, 0); LDG_BSM_A_TILE_STAGE_I(2, 1);
+        MMA_STAGE_MNKx2(0, 3, 0, 1);
+        MMA_STAGE_MNKx2(0, 3, 1, 0); MMA_STAGE_MNKx2(0, 3, 1, 1);
+        MMA_STAGE_MNKx2(0, 3, 2, 0); MMA_STAGE_MNKx2(0, 3, 2, 1);
+        MMA_STAGE_MNKx2(0, 3, 3, 0); MMA_STAGE_MNKx2(0, 3, 3, 1);
+        ARRIVE_GVM_BSM_BARRIER(2 * kLdgNumPerStage * (kStage - 5) + 10, 0);
+        MMA_STAGE_MNKx2(3, 0, 0, 0); LDG_BSM_B_TILE_STAGE_I(2, 0);
+        MMA_STAGE_MNKx2(3, 0, 0, 1);
+        LDS_OFS(a[0][0], smem_A[asld[0]], 0 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 0, 1, 0); MMA_STAGE_MNKx2(3, 0, 1, 1);
+        LDS_OFS(a[0][1], smem_A[asld[1]], 0 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 0, 2, 0); MMA_STAGE_MNKx2(3, 0, 2, 1);
+        LDS_OFS(a[0][2], smem_A[asld[2]], 0 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 0, 3, 0); MMA_STAGE_MNKx2(3, 0, 3, 1);
+        LDS_OFS(a[0][3], smem_A[asld[3]], 0 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 3, 0, 0); LDG_BSM_B_TILE_STAGE_I(2, 1);
+        MMA_STAGE_MNKx2(1, 3, 0, 1);
+        LDS_OFS(b[0][0], smem_B[bsld[0]], 0 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 3, 1, 0); MMA_STAGE_MNKx2(1, 3, 1, 1);
+        LDS_OFS(b[0][1], smem_B[bsld[1]], 0 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 3, 2, 0); MMA_STAGE_MNKx2(1, 3, 2, 1);
+        LDS_OFS(b[0][2], smem_B[bsld[2]], 0 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(1, 3, 3, 0); MMA_STAGE_MNKx2(1, 3, 3, 1);
+        LDS_OFS(b[0][3], smem_B[bsld[3]], 0 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 1, 0, 0); LDG_BSM_A_TILE_STAGE_I(3, 0);
+        MMA_STAGE_MNKx2(3, 1, 0, 1);
+        MMA_STAGE_MNKx2(3, 1, 1, 0); MMA_STAGE_MNKx2(3, 1, 1, 1);
+        MMA_STAGE_MNKx2(3, 1, 2, 0); MMA_STAGE_MNKx2(3, 1, 2, 1);
+        MMA_STAGE_MNKx2(3, 1, 3, 0); MMA_STAGE_MNKx2(3, 1, 3, 1);
+        MMA_STAGE_MNKx2(3, 2, 0, 0); LDG_BSM_A_TILE_STAGE_I(3, 1);
+        MMA_STAGE_MNKx2(3, 2, 0, 1);
+        MMA_STAGE_MNKx2(3, 2, 1, 0); MMA_STAGE_MNKx2(3, 2, 1, 1);
+        MMA_STAGE_MNKx2(3, 2, 2, 0);
+        ARRIVE_GVM_BSM_BARRIER(2 * kLdgNumPerStage * (kStage - 6) + 14, 0);
+        MMA_STAGE_MNKx2(3, 2, 2, 1);
+        LDS_OFS(a[1][0], smem_A[asld[0]], 1 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 2, 3, 0); MMA_STAGE_MNKx2(3, 2, 3, 1);
+        LDS_OFS(a[1][1], smem_A[asld[1]], 1 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 3, 0, 0); LDG_BSM_B_TILE_STAGE_I(3, 0);
+        MMA_STAGE_MNKx2(2, 3, 0, 1);
+        LDS_OFS(a[1][2], smem_A[asld[2]], 1 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 3, 1, 0); MMA_STAGE_MNKx2(2, 3, 1, 1);
+        LDS_OFS(a[1][3], smem_A[asld[3]], 1 * kLdsRowStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 3, 2, 0); MMA_STAGE_MNKx2(2, 3, 2, 1);
+        LDS_OFS(b[1][0], smem_B[bsld[0]], 1 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(2, 3, 3, 0); MMA_STAGE_MNKx2(2, 3, 3, 1);
+        LDS_OFS(b[1][1], smem_B[bsld[1]], 1 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 3, 0, 0); LDG_BSM_B_TILE_STAGE_I(3, 1);
+        MMA_STAGE_MNKx2(3, 3, 0, 1);
+        LDS_OFS(b[1][2], smem_B[bsld[2]], 1 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 3, 1, 0); MMA_STAGE_MNKx2(3, 3, 1, 1);
+        LDS_OFS(b[1][3], smem_B[bsld[3]], 1 * kLdsColStride * kTileK, LdsType);
+        MMA_STAGE_MNKx2(3, 3, 2, 0); MMA_STAGE_MNKx2(3, 3, 2, 1);
+        Aaddr += kTileK;
+        MMA_STAGE_MNKx2(3, 3, 3, 0); MMA_STAGE_MNKx2(3, 3, 3, 1);
+    }
+
+    // ---- epilogue-MMA (drain the 4 stages). rowC computed directly (no gather). ----
+    int rowC_[16];
+    int token_row_m = prev_m + ((tidx % 64) / 16) * 4 + (wave_id / 2) * 16;
+    #pragma unroll
+    for (int kk = 0; kk < 4; ++kk)
+        #pragma unroll
+        for (int jj = 0; jj < 4; ++jj)
+            rowC_[kk * 4 + jj] = token_row_m + kk * 32 + jj;
+
+    // stage0 MMA
+    MMA_STAGE_MNKx2(0, 0, 0, 0); MMA_STAGE_MNKx2(0, 0, 0, 1);
+    MMA_STAGE_MNKx2(0, 0, 1, 0); MMA_STAGE_MNKx2(0, 0, 1, 1);
+    MMA_STAGE_MNKx2(0, 0, 2, 0); MMA_STAGE_MNKx2(0, 0, 2, 1);
+    MMA_STAGE_MNKx2(0, 0, 3, 0); MMA_STAGE_MNKx2(0, 0, 3, 1);
+    // stage1 MMA
+    MMA_STAGE_MNKx2(1, 0, 0, 0); MMA_STAGE_MNKx2(1, 0, 0, 1);
+    MMA_STAGE_MNKx2(1, 0, 1, 0); MMA_STAGE_MNKx2(1, 0, 1, 1);
+    MMA_STAGE_MNKx2(1, 0, 2, 0); MMA_STAGE_MNKx2(1, 0, 2, 1);
+    MMA_STAGE_MNKx2(1, 0, 3, 0);
+    ARRIVE_GVM_BSM_BARRIER(2 * kLdgNumPerStage * (kStage - 3), 0);
+    MMA_STAGE_MNKx2(1, 0, 3, 1);
+    LDS_OFS(a[2][0], smem_A[asld[0]], 2 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(0, 1, 0, 0); MMA_STAGE_MNKx2(0, 1, 0, 1);
+    LDS_OFS(a[2][1], smem_A[asld[1]], 2 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(1, 1, 0, 0); MMA_STAGE_MNKx2(1, 1, 0, 1);
+    LDS_OFS(a[2][2], smem_A[asld[2]], 2 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(0, 1, 1, 0); MMA_STAGE_MNKx2(0, 1, 1, 1);
+    LDS_OFS(a[2][3], smem_A[asld[3]], 2 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(1, 1, 1, 0); MMA_STAGE_MNKx2(1, 1, 1, 1);
+    LDS_OFS(b[2][0], smem_B[bsld[0]], 2 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(0, 1, 2, 0); MMA_STAGE_MNKx2(0, 1, 2, 1);
+    LDS_OFS(b[2][1], smem_B[bsld[1]], 2 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(1, 1, 2, 0); MMA_STAGE_MNKx2(1, 1, 2, 1);
+    LDS_OFS(b[2][2], smem_B[bsld[2]], 2 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(0, 1, 3, 0); MMA_STAGE_MNKx2(0, 1, 3, 1);
+    LDS_OFS(b[2][3], smem_B[bsld[3]], 2 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(1, 1, 3, 0); MMA_STAGE_MNKx2(1, 1, 3, 1);
+    // stage2 MMA
+    MMA_STAGE_MNKx2(2, 0, 0, 0); MMA_STAGE_MNKx2(2, 0, 0, 1);
+    MMA_STAGE_MNKx2(2, 1, 0, 0); MMA_STAGE_MNKx2(2, 1, 0, 1);
+    MMA_STAGE_MNKx2(2, 0, 1, 0); MMA_STAGE_MNKx2(2, 0, 1, 1);
+    MMA_STAGE_MNKx2(2, 1, 1, 0); MMA_STAGE_MNKx2(2, 1, 1, 1);
+    MMA_STAGE_MNKx2(2, 0, 2, 0); MMA_STAGE_MNKx2(2, 0, 2, 1);
+    MMA_STAGE_MNKx2(2, 1, 2, 0);
+    ARRIVE_GVM_BSM_BARRIER(2 * kLdgNumPerStage * (kStage - 4), 0);
+    MMA_STAGE_MNKx2(2, 1, 2, 1);
+    LDS_OFS(a[3][0], smem_A[asld[0]], 3 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(2, 0, 3, 0); MMA_STAGE_MNKx2(2, 0, 3, 1);
+    LDS_OFS(a[3][1], smem_A[asld[1]], 3 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(2, 1, 3, 0); MMA_STAGE_MNKx2(2, 1, 3, 1);
+    LDS_OFS(a[3][2], smem_A[asld[2]], 3 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(0, 2, 0, 0); MMA_STAGE_MNKx2(0, 2, 0, 1);
+    LDS_OFS(a[3][3], smem_A[asld[3]], 3 * kLdsRowStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(1, 2, 0, 0); MMA_STAGE_MNKx2(1, 2, 0, 1);
+    LDS_OFS(b[3][0], smem_B[bsld[0]], 3 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(2, 2, 0, 0); MMA_STAGE_MNKx2(2, 2, 0, 1);
+    LDS_OFS(b[3][1], smem_B[bsld[1]], 3 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(0, 2, 1, 0); MMA_STAGE_MNKx2(0, 2, 1, 1);
+    LDS_OFS(b[3][2], smem_B[bsld[2]], 3 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(1, 2, 1, 0); MMA_STAGE_MNKx2(1, 2, 1, 1);
+    LDS_OFS(b[3][3], smem_B[bsld[3]], 3 * kLdsColStride * kTileK, LdsType);
+    MMA_STAGE_MNKx2(2, 2, 1, 0); MMA_STAGE_MNKx2(2, 2, 1, 1);
+    MMA_STAGE_MNKx2(0, 2, 2, 0); MMA_STAGE_MNKx2(0, 2, 2, 1);
+    MMA_STAGE_MNKx2(1, 2, 2, 0); MMA_STAGE_MNKx2(1, 2, 2, 1);
+    MMA_STAGE_MNKx2(2, 2, 2, 0); MMA_STAGE_MNKx2(2, 2, 2, 1);
+    MMA_STAGE_MNKx2(0, 2, 3, 0); MMA_STAGE_MNKx2(0, 2, 3, 1);
+    MMA_STAGE_MNKx2(1, 2, 3, 0); MMA_STAGE_MNKx2(1, 2, 3, 1);
+    MMA_STAGE_MNKx2(2, 2, 3, 0); MMA_STAGE_MNKx2(2, 2, 3, 1);
+    // stage3 MMA
+    MMA_STAGE_MNKx2(0, 3, 0, 0); MMA_STAGE_MNKx2(0, 3, 0, 1);
+    MMA_STAGE_MNKx2(0, 3, 1, 0); MMA_STAGE_MNKx2(0, 3, 1, 1);
+    MMA_STAGE_MNKx2(0, 3, 2, 0); MMA_STAGE_MNKx2(0, 3, 2, 1);
+    MMA_STAGE_MNKx2(0, 3, 3, 0); MMA_STAGE_MNKx2(0, 3, 3, 1);
+    MMA_STAGE_MNKx2(3, 0, 0, 0); MMA_STAGE_MNKx2(3, 0, 0, 1);
+    MMA_STAGE_MNKx2(3, 0, 1, 0); MMA_STAGE_MNKx2(3, 0, 1, 1);
+    MMA_STAGE_MNKx2(3, 0, 2, 0); MMA_STAGE_MNKx2(3, 0, 2, 1);
+    MMA_STAGE_MNKx2(3, 0, 3, 0); MMA_STAGE_MNKx2(3, 0, 3, 1);
+    MMA_STAGE_MNKx2(1, 3, 0, 0); MMA_STAGE_MNKx2(1, 3, 0, 1);
+    MMA_STAGE_MNKx2(1, 3, 1, 0); MMA_STAGE_MNKx2(1, 3, 1, 1);
+    MMA_STAGE_MNKx2(1, 3, 2, 0); MMA_STAGE_MNKx2(1, 3, 2, 1);
+    MMA_STAGE_MNKx2(1, 3, 3, 0); MMA_STAGE_MNKx2(1, 3, 3, 1);
+    MMA_STAGE_MNKx2(3, 1, 0, 0); MMA_STAGE_MNKx2(3, 1, 0, 1);
+    MMA_STAGE_MNKx2(3, 1, 1, 0); MMA_STAGE_MNKx2(3, 1, 1, 1);
+    MMA_STAGE_MNKx2(3, 1, 2, 0); MMA_STAGE_MNKx2(3, 1, 2, 1);
+    MMA_STAGE_MNKx2(3, 1, 3, 0); MMA_STAGE_MNKx2(3, 1, 3, 1);
+    MMA_STAGE_MNKx2(3, 2, 0, 0); MMA_STAGE_MNKx2(3, 2, 0, 1);
+    MMA_STAGE_MNKx2(3, 2, 1, 0); MMA_STAGE_MNKx2(3, 2, 1, 1);
+    MMA_STAGE_MNKx2(3, 2, 2, 0); MMA_STAGE_MNKx2(3, 2, 2, 1);
+    MMA_STAGE_MNKx2(3, 2, 3, 0); MMA_STAGE_MNKx2(3, 2, 3, 1);
+    MMA_STAGE_MNKx2(2, 3, 0, 0); MMA_STAGE_MNKx2(2, 3, 0, 1);
+    MMA_STAGE_MNKx2(2, 3, 1, 0); MMA_STAGE_MNKx2(2, 3, 1, 1);
+    MMA_STAGE_MNKx2(2, 3, 2, 0); MMA_STAGE_MNKx2(2, 3, 2, 1);
+    MMA_STAGE_MNKx2(2, 3, 3, 0); MMA_STAGE_MNKx2(2, 3, 3, 1);
+    MMA_STAGE_MNKx2(3, 3, 0, 0); MMA_STAGE_MNKx2(3, 3, 0, 1);
+    MMA_STAGE_MNKx2(3, 3, 1, 0); MMA_STAGE_MNKx2(3, 3, 1, 1);
+    MMA_STAGE_MNKx2(3, 3, 2, 0); MMA_STAGE_MNKx2(3, 3, 2, 1);
+    MMA_STAGE_MNKx2(3, 3, 3, 0); MMA_STAGE_MNKx2(3, 3, 3, 1);
+
+    // ---- pack accum -> output_[16] (INT4) ----
+    INT4 output_[16];
+    #pragma unroll
+    for (uint32_t i = 0; i < kStage; i++) {
+        #pragma unroll
+        for (uint32_t j = 0; j < 4; j++) {
+            output_[i * 4 + j][0] = accum[i][0][j];
+            output_[i * 4 + j][1] = accum[i][1][j];
+            output_[i * 4 + j][2] = accum[i][2][j];
+            output_[i * 4 + j][3] = accum[i][3][j];
+        }
+    }
+
+    // ===== EPILOGUE (direct store, ScaleAvBv + moe_weight -> bf16) =====
+    // ADAPTED: scale_a indexed by routed row directly (pre-expanded), no /topk.
+    StgType tempC;
+    int colC = 4 * (tidx % 16) + (wave_id % 2 * 64);
+    bool colC_mask = colC < col_limit;
+    float weights[kStage][4], a_scale[kStage][4];
+    #pragma unroll
+    for (uint32_t i = 0; i < kStage; i++) {
+        #pragma unroll
+        for (uint32_t j = 0; j < 4; j++) {
+            if (EpilogueOutputOp::MUL_WEIGHTS) {
+                const void *moe_w_ptr = args.output_op.moe_weights_ + rowC_[i * 4 + j];
+                *(reinterpret_cast<INT1 *>(&weights[i]) + j) =
+                    __builtin_mxc_ldg_b32_predicator(const_cast<void*>(moe_w_ptr),
+                        0, true, true, false, false,
+                        rowC_[i * 4 + j], EM, MACA_ICMP_SLT);
+            }
+            const void *sa_ptr = args.output_op.scale_a_ + rowC_[i * 4 + j];  // pre-expanded: direct
+            *(reinterpret_cast<INT1 *>(&a_scale[i]) + j) =
+                __builtin_mxc_ldg_b32_predicator(const_cast<void*>(sa_ptr),
+                    0, true, true, false, false,
+                    rowC_[i * 4 + j], EM, MACA_ICMP_SLT);
+        }
+    }
+    const void *scale_b = (const float *)args.output_op.scale_b_ + group_idx * N + bidy * kTileN + colC;
+    FLOAT4 b_scale = __builtin_mxc_ldg_b128_predicator(const_cast<void*>(scale_b),
+        0, true, true, false, false, colC_mask, 1, MACA_ICMP_EQ);
+
+    Tc *Caddr = (Tc *)args.ptr_C + bidy * kTileN;
+    FLOAT2 zero2 = {0.f, 0.f};
+    #pragma unroll
+    for (uint32_t i = 0; i < kStage; i++) {
+        #pragma unroll
+        for (uint32_t j = 0; j < 4; j++) {
+            float out[4];
+            out[0] = output_[i * 4 + j][0]; out[1] = output_[i * 4 + j][1];
+            out[2] = output_[i * 4 + j][2]; out[3] = output_[i * 4 + j][3];
+            if (EpilogueOutputOp::MUL_WEIGHTS) { a_scale[i][j] *= weights[i][j]; }
+            FLOAT2 a_scale_f2 = {a_scale[i][j], a_scale[i][j]};
+            FLOAT2 scale0 = __builtin_mxc_pk_fma_f32(reinterpret_cast<FLOAT2*>(&b_scale)[0], a_scale_f2, zero2);
+            FLOAT2 scale1 = __builtin_mxc_pk_fma_f32(reinterpret_cast<FLOAT2*>(&b_scale)[1], a_scale_f2, zero2);
+            *reinterpret_cast<FLOAT2*>(&out[0]) = __builtin_mxc_pk_fma_f32(*reinterpret_cast<FLOAT2*>(&out[0]), scale0, zero2);
+            *reinterpret_cast<FLOAT2*>(&out[2]) = __builtin_mxc_pk_fma_f32(*reinterpret_cast<FLOAT2*>(&out[2]), scale1, zero2);
+            CVT_F32_TO_BF16(tempC[0], reinterpret_cast<uint *>(&out)[0], reinterpret_cast<uint *>(&out)[1]);
+            CVT_F32_TO_BF16(tempC[1], reinterpret_cast<uint *>(&out)[2], reinterpret_cast<uint *>(&out)[3]);
+            __builtin_mxc_stg_b64_predicator(Caddr + rowC_[i * 4 + j] * N + colC,
+                0, *(reinterpret_cast<uint64_t *>(&tempC)),
+                true, false, false,
+                (rowC_[i * 4 + j] < EM) && colC_mask, 1, MACA_ICMP_EQ);
+        }
+    }
+}
+
+static inline void launch_decode(
+    const int8_t* a,
+    const int8_t* b_col_major,
+    const float* scale_a,
+    const float* scale_b,
+    const float* moe_weights,
+    const int32_t* expert_ids,
+    __nv_bfloat16* out,
+    const KernelConfig& cfg
+) {
+    Arguments args(
+        BatchedGemmCoord(cfg.em, cfg.n, cfg.k, 256),
+        EpilogueOutputOp(scale_a, scale_b, moe_weights),
+        a, b_col_major, out,
+        MoeParams(const_cast<int*>(expert_ids),
+                  reinterpret_cast<int*>(const_cast<int8_t*>(a)),
+                  cfg.em, 8, true));
+    const dim3 block(kThreadNum, 1, 1);
+    const int grid_m = (cfg.em + kTileM - 1) / kTileM;
+    const int grid_y = (cfg.n + kTileN - 1) / kTileN;
+    const dim3 grid(1, grid_y, grid_m);
+    direct_moe_kernel_m4<<<grid, block>>>(args);
+}
+
+}  // namespace sync_m4
+}  // namespace xh_fused_moe
+
+#undef LDG_BSM_B_TILE_STAGE_I
+#undef LDG_BSM_A_TILE_STAGE_I
+#undef MMA_STAGE_MNKx2
+#undef LDS_OFS
+#undef LDS
+#undef ARRIVE_GVM_BSM_BARRIER
+#undef CVT_F32_TO_BF16
+#undef arrive_bsmcnt
+#undef arrive_gvmcnt
+
 #endif
