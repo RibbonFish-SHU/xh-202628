@@ -3,6 +3,8 @@ import re
 import unittest
 from pathlib import Path
 
+from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "operators/fused_moe_i8_tn/cuda_maca/submission.cu"
@@ -47,7 +49,7 @@ def text() -> str:
 
 class SyncM4HybridTest(unittest.TestCase):
     def test_restricted_projection_recovers_formal_best(self):
-        candidate = text()
+        candidate = reverse_to_formal_best(text())
         formal, component = candidate.split(COMPONENT_MARKER, 1)
         formal = formal.replace(FORWARD_DECLARATION, "\n", 1)
         formal = formal.replace(DISPATCH, "", 1)
@@ -75,7 +77,10 @@ class SyncM4HybridTest(unittest.TestCase):
         self.assertTrue(uses_m4(4096, 7168, 2048))
         self.assertFalse(uses_m4(32768, 7168, 2048))
         self.assertFalse(uses_m4(128, 128, 128))
-        self.assertIn("fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>", candidate)
+        self.assertIn(
+            "fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168>", candidate
+        )
+        self.assertNotIn("fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>", candidate)
         self.assertIn("fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>", candidate)
 
     def test_single_abi_sync_bsm_and_macro_cleanup(self):

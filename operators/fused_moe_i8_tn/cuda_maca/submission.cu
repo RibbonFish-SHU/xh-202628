@@ -269,6 +269,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const int em = kFixedEm == 0 ? runtime_em : kFixedEm;
     const int n = kFixedN == 0 ? runtime_n : kFixedN;
     const int k = kFixedK == 0 ? runtime_k : kFixedK;
+    constexpr bool kUseCase2FixedNkU32BLocalOffsets =
+        kUseOutputScratchExpertSort && kFixedEm == 0
+        && kFixedN == 4096 && kFixedK == 7168;
 
 #define XH_MMA_STAGE_MNKX2(m, nn, kk)                                                             \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
@@ -286,7 +289,11 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
 #define XH_LDG_B_STAGE_I(ldgi)                                                                    \
     load_b_##ldgi = __builtin_mxc_ldg_b128(                                                       \
-        &(global_b(load_b_row[ldgi], load_k, tile_k)),                                            \
+        kUseCase2FixedNkU32BLocalOffsets                                                          \
+            ? const_cast<int8_t*>(expert_b) + static_cast<uint64_t>(                              \
+                static_cast<uint32_t>(load_b_row[ldgi])                                           \
+                    + tile_k * static_cast<uint32_t>(kMmaTileK))                                  \
+            : &(global_b(load_b_row[ldgi], load_k, tile_k)),                                      \
         0,                                                                                         \
         -1,                                                                                        \
         true,                                                                                      \
@@ -364,8 +371,19 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     {
         const int candidate_col = load_b_row_base;
         load_b_row[0] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        if constexpr (kUseCase2FixedNkU32BLocalOffsets) {
+            load_b_row[0] = static_cast<int>(
+                (static_cast<uint32_t>(tile_n) * static_cast<uint32_t>(kMmaTileN)
+                    + static_cast<uint32_t>(load_b_row[0])) * static_cast<uint32_t>(k)
+                + static_cast<uint32_t>(load_k));
+        }
         load_b_0 = __builtin_mxc_ldg_b128_predicator(
-            &(global_b(load_b_row[0], load_k, num_k_tiles - 1)),
+            kUseCase2FixedNkU32BLocalOffsets
+                ? const_cast<int8_t*>(expert_b) + static_cast<uint64_t>(
+                    static_cast<uint32_t>(load_b_row[0])
+                        + static_cast<uint32_t>(num_k_tiles - 1)
+                            * static_cast<uint32_t>(kMmaTileK))
+                : &(global_b(load_b_row[0], load_k, num_k_tiles - 1)),
             0,
             true,
             true,
@@ -378,8 +396,19 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     {
         const int candidate_col = load_b_row_base + 1;
         load_b_row[1] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        if constexpr (kUseCase2FixedNkU32BLocalOffsets) {
+            load_b_row[1] = static_cast<int>(
+                (static_cast<uint32_t>(tile_n) * static_cast<uint32_t>(kMmaTileN)
+                    + static_cast<uint32_t>(load_b_row[1])) * static_cast<uint32_t>(k)
+                + static_cast<uint32_t>(load_k));
+        }
         load_b_1 = __builtin_mxc_ldg_b128_predicator(
-            &(global_b(load_b_row[1], load_k, num_k_tiles - 1)),
+            kUseCase2FixedNkU32BLocalOffsets
+                ? const_cast<int8_t*>(expert_b) + static_cast<uint64_t>(
+                    static_cast<uint32_t>(load_b_row[1])
+                        + static_cast<uint32_t>(num_k_tiles - 1)
+                            * static_cast<uint32_t>(kMmaTileK))
+                : &(global_b(load_b_row[1], load_k, num_k_tiles - 1)),
             0,
             true,
             true,
@@ -392,8 +421,19 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     {
         const int candidate_col = load_b_row_base + 2;
         load_b_row[2] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        if constexpr (kUseCase2FixedNkU32BLocalOffsets) {
+            load_b_row[2] = static_cast<int>(
+                (static_cast<uint32_t>(tile_n) * static_cast<uint32_t>(kMmaTileN)
+                    + static_cast<uint32_t>(load_b_row[2])) * static_cast<uint32_t>(k)
+                + static_cast<uint32_t>(load_k));
+        }
         load_b_2 = __builtin_mxc_ldg_b128_predicator(
-            &(global_b(load_b_row[2], load_k, num_k_tiles - 1)),
+            kUseCase2FixedNkU32BLocalOffsets
+                ? const_cast<int8_t*>(expert_b) + static_cast<uint64_t>(
+                    static_cast<uint32_t>(load_b_row[2])
+                        + static_cast<uint32_t>(num_k_tiles - 1)
+                            * static_cast<uint32_t>(kMmaTileK))
+                : &(global_b(load_b_row[2], load_k, num_k_tiles - 1)),
             0,
             true,
             true,
@@ -406,8 +446,19 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     {
         const int candidate_col = load_b_row_base + 3;
         load_b_row[3] = candidate_col < col_limit ? candidate_col : col_limit - 1;
+        if constexpr (kUseCase2FixedNkU32BLocalOffsets) {
+            load_b_row[3] = static_cast<int>(
+                (static_cast<uint32_t>(tile_n) * static_cast<uint32_t>(kMmaTileN)
+                    + static_cast<uint32_t>(load_b_row[3])) * static_cast<uint32_t>(k)
+                + static_cast<uint32_t>(load_k));
+        }
         load_b_3 = __builtin_mxc_ldg_b128_predicator(
-            &(global_b(load_b_row[3], load_k, num_k_tiles - 1)),
+            kUseCase2FixedNkU32BLocalOffsets
+                ? const_cast<int8_t*>(expert_b) + static_cast<uint64_t>(
+                    static_cast<uint32_t>(load_b_row[3])
+                        + static_cast<uint32_t>(num_k_tiles - 1)
+                            * static_cast<uint32_t>(kMmaTileK))
+                : &(global_b(load_b_row[3], load_k, num_k_tiles - 1)),
             0,
             true,
             true,
@@ -1042,7 +1093,7 @@ static inline void launch(
                     config.k
                 );
         } else {
-            fused_moe_i8_tn_mma_kernel<true, 0, 0, 0><<<grid, block>>>(
+            fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168><<<grid, block>>>(
                 a,
                 b_col_major,
                 scale_a,
