@@ -217,7 +217,7 @@
 | Agent OJ 提交次数 | 66 | 新增 `#128452` CUDA Maca Accepted/84.00/exp-180；四点 84/77/89/86，已 finalized 并释放槽位；与 formal best 同分，排名仍 19 |
 | 待向用户报告的提交 | 0 | `#128026`、`#128266`、`#128452` 已于 2026-08-27 汇总报告并在 controller 中标记 reported；当前无未报告终态 |
 | 并行编排工作流 | c500-native | Main Agent 统一管理隔离 Subagent、唯一 C500 ABBA 验证槽和唯一 XPU-OJ active claim |
-| 当前并行批次 | exp-193-closed-new-mechanism-research | `exp-191/192/193` 在逻辑地址穷举、barrier 恢复和 raw/CUTE 两种地址表达下均于同一 public case-3 exact launch 触发 target Memory Violation，direct-global B family 已关闭。两条只读 lane 正在检查 formal-best/保存 IR/官方 SDK 的未覆盖结构机制与目标约束；没有达到约 1% 结构收益且不落 denylist 的新证据前不创建 candidate 或消耗 C500/OJ。 |
+| 当前并行批次 | exp-193-closed-no-candidate | `exp-191/192/193` 在逻辑地址穷举、barrier 恢复和 raw/CUTE 两种地址表达下均于同一 public case-3 exact launch 触发 target Memory Violation，direct-global B family 已关闭。post-exp193 两条只读 lane 完成 formal-best/历史组合/保存 IR/官方 SDK 复查：安全 coalesced-B + scalar width-64 shuffle 每 wave/K 至少为 `16 LDG + 64 shuffle=80` issues，较 formal B 的 24 issues 明显回退；不存在 vector/CTA exchange primitive。case3 其余结构上界不足 `4.190845%`；case4 B0-B3 在 full-fixed 上为负增量，width16 仅 `0.8821%`，不足 86→87。当前 `NO-CANDIDATE`，不创建 exp-194，不消耗 C500/OJ；仅在供应商新增 vector/CTA exchange、新 MMA/cache primitive 或 fault-ISA 证据时重开。 |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
 机器可读当前门禁见 `state/c500-execution.json`；`state/remote-execution.json` 仅保留已停用 NVIDIA 历史配置。
