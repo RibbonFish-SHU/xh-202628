@@ -1332,6 +1332,27 @@
       "status": "Accepted",
       "submitted_at": "2026-08-28T13:23:13+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/130428"
+    },
+    {
+      "candidate_id": "cand-exp-20260828-202-hybrid-case2-fixed-u32",
+      "claim_id": "claim-1d476e51c6bc4c80859942addf35c09e",
+      "commit": "8341aa38e55659285673111df90e786c1fba08df",
+      "evidence": "artifacts/raw/xpuoj/130490",
+      "experiment": "exp-20260828-202",
+      "id": "130490",
+      "language": "CUDA Maca",
+      "message_ref": "user-update-20260828-130490",
+      "notes": "4/4 Accepted; cases 86/77/90/86 at 0.804/6.425/0.493/3.473 ms; exp-202 raises formal best by 0.25 via case-3 tier.",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.50",
+      "rank": "16",
+      "report_summary": "Accepted 4/4; score 84.75; rank 16; cases 86/77/90/86 at 0.804/6.425/0.493/3.473 ms; new formal best, continuing toward 85.50.",
+      "reported_at": "2026-08-28T14:49:57+00:00",
+      "reported_to_user": true,
+      "score": "84.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-28T14:17:06+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/130490"
     }
   ],
   "version": 2
