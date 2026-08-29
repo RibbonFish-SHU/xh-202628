@@ -1558,6 +1558,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T21:29:23+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/132271"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-240-case2-k128-first-layout",
+      "claim_id": "claim-00babd0a529141659e5a7fdbf30fe25b",
+      "commit": "2bfd72a2585f78ba5fd1b1d591765921850a6a13",
+      "evidence": "artifacts/raw/xpuoj/132310",
+      "experiment": "exp-20260830-240",
+      "id": "132310",
+      "language": "CUDA Maca",
+      "notes": "exp-240 case2-first K128 source placement preserved 86/77/90/86 at 0.806/6.451/0.494/3.483 ms; tie rejected and formal best will be restored",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "17",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "84.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T22:12:34+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132310"
     }
   ],
   "version": 2
