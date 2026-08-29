@@ -1578,6 +1578,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T22:12:34+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/132310"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-242-case2-k128-after-generic",
+      "claim_id": "claim-edea5e0738914f0cb4dc3b4bcd7c6a43",
+      "commit": "d043aef46c89578f8288c856061a0e35be50c27e",
+      "evidence": "artifacts/raw/xpuoj/132350",
+      "experiment": "exp-20260830-242",
+      "id": "132350",
+      "language": "CUDA Maca",
+      "notes": "exp-242 case4-generic-case2 K128 layout accepted but regressed to 86/72/89/85 at 0.819/8.612/0.502/3.780 ms; reject and restore formal best",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "17",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.00",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T22:59:57+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132350"
     }
   ],
   "version": 2
