@@ -132,9 +132,9 @@ class Case4ModuleFullSortTests(unittest.TestCase):
         self.assertNotIn("<true, 0, 4096, 7168>", launch)
         self.assertNotIn("kFixedEm", launch)
         self.assertNotIn("tile_zero", launch)
-        self.assertIn("case2_full_stable_sort_rank(", builder)
+        self.assertIn("const int partner = logical_tile_m ^ stride", builder)
         self.assertIn(
-            "g_case2_full_expert_sort_map[physical_tile_m] = logical_tile_m;",
+            "pack_full_sort_payload(expert, logical_tile_m)",
             builder,
         )
 
@@ -146,6 +146,8 @@ class Case4ModuleFullSortTests(unittest.TestCase):
             source,
         )
         self.assertIn("? g_case2_full_expert_sort_map[physical_tile_m]", source)
+        self.assertIn("unpack_full_sort_tile(sort_payload)", source)
+        self.assertIn("unpack_full_sort_expert(sort_payload)", source)
         self.assertNotIn("cudaDeviceSynchronize", source)
         self.assertNotIn("cudaMemcpy", source)
         self.assertEqual(GRID_X * 128 * 7168 + 128 * 7168, 8257536)

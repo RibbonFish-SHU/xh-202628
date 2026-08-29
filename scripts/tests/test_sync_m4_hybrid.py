@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
+from scripts.tests.test_full_sort_bitonic_packed_score import reverse_to_baseline
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,7 +50,7 @@ def text() -> str:
 
 class SyncM4HybridTest(unittest.TestCase):
     def test_restricted_projection_recovers_formal_best(self):
-        candidate = reverse_to_formal_best(text())
+        candidate = reverse_to_formal_best(reverse_to_baseline(text()))
         formal, component = candidate.split(COMPONENT_MARKER, 1)
         formal = formal.replace(FORWARD_DECLARATION, "\n", 1)
         formal = formal.replace(DISPATCH, "", 1)

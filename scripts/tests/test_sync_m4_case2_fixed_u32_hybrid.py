@@ -15,6 +15,7 @@ from scripts.tests.test_case2_fixed_nk_u32_brow import (
     reverse_to_formal_best,
     row_and_k_offset,
 )
+from scripts.tests.test_full_sort_bitonic_packed_score import reverse_to_baseline
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,7 @@ class SyncM4Case2FixedU32HybridTests(unittest.TestCase):
         cls.source = SOURCE.read_text(encoding="utf-8").replace("\r\n", "\n")
 
     def test_restricted_inverse_recovers_current_formal_best(self) -> None:
-        baseline = reverse_to_formal_best(self.source)
+        baseline = reverse_to_formal_best(reverse_to_baseline(self.source))
         self.assertEqual(hashlib.sha256(baseline.encode()).hexdigest(), BASELINE_SHA256)
 
     def test_dispatches_keep_decode_m4_and_only_specialize_case2(self) -> None:
