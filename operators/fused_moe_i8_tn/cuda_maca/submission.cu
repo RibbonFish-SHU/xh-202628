@@ -272,6 +272,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     constexpr bool kUseCase2FixedNkU32BLocalOffsets =
         kUseOutputScratchExpertSort && kFixedEm == 0
         && kFixedN == 4096 && kFixedK == 7168;
+    constexpr bool kUseCase2FixedNkU32AOffsets =
+        kUseOutputScratchExpertSort && kFixedEm == 0
+        && kFixedN == 4096 && kFixedK == 7168;
 
 #define XH_MMA_STAGE_MNKX2(m, nn, kk)                                                             \
     accum[m][nn] = XH_MMA_I8(a_frag[m][kk], b_frag[nn][kk], accum[m][nn]);                       \
@@ -279,7 +282,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
 #define XH_LDG_A_STAGE_I(ldgi)                                                                    \
     load_a_##ldgi = __builtin_mxc_ldg_b128(                                                       \
-        a_base + load_a_row_offset[ldgi] + load_k,                                                \
+        kUseCase2FixedNkU32AOffsets                                                               \
+            ? a_base + static_cast<uint32_t>(load_a_row_offset[ldgi])                            \
+            : a_base + load_a_row_offset[ldgi] + load_k,                                         \
         0,                                                                                         \
         -1,                                                                                        \
         true,                                                                                      \
@@ -366,7 +371,13 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
         const int routed_row = row_base + load_a_row_base + kMmaRowsPerLoad * i;
-        load_a_row_offset[i] = routed_row * k;
+        if constexpr (kUseCase2FixedNkU32AOffsets) {
+            load_a_row_offset[i] = static_cast<int>(
+                static_cast<uint32_t>(routed_row) * static_cast<uint32_t>(k)
+                + static_cast<uint32_t>(load_k));
+        } else {
+            load_a_row_offset[i] = routed_row * k;
+        }
     }
     {
         const int candidate_col = load_b_row_base;
@@ -469,7 +480,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
             MACA_ICMP_SLT);
     }
     load_a_0 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[0] + load_k,
+        kUseCase2FixedNkU32AOffsets
+            ? a_base + static_cast<uint32_t>(load_a_row_offset[0])
+            : a_base + load_a_row_offset[0] + load_k,
         0,
         -1,
         true,
@@ -477,7 +490,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false,
         false);
     load_a_1 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[1] + load_k,
+        kUseCase2FixedNkU32AOffsets
+            ? a_base + static_cast<uint32_t>(load_a_row_offset[1])
+            : a_base + load_a_row_offset[1] + load_k,
         0,
         -1,
         true,
@@ -485,7 +500,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false,
         false);
     load_a_2 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[2] + load_k,
+        kUseCase2FixedNkU32AOffsets
+            ? a_base + static_cast<uint32_t>(load_a_row_offset[2])
+            : a_base + load_a_row_offset[2] + load_k,
         0,
         -1,
         true,
@@ -493,7 +510,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false,
         false);
     load_a_3 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[3] + load_k,
+        kUseCase2FixedNkU32AOffsets
+            ? a_base + static_cast<uint32_t>(load_a_row_offset[3])
+            : a_base + load_a_row_offset[3] + load_k,
         0,
         -1,
         true,
