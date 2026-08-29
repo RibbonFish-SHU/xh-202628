@@ -1,5 +1,5 @@
 {
-  "pending_report": null,
+  "pending_report": "132033",
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -1458,6 +1458,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T13:09:42+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/131621"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-234-formal-bf16-ties-away-replay",
+      "claim_id": "claim-d71c0d2da5a143ac9745b8d0e413a61b",
+      "commit": "b8435ecdacfd766f6a8dfd801241427f019b5fb3",
+      "evidence": "artifacts/raw/xpuoj/132033",
+      "experiment": "exp-20260830-234",
+      "id": "132033",
+      "language": "CUDA Maca",
+      "notes": "exp-234 BF16 ties-away replay matched formal best at 84.75; observed checkpoints consistent with 86/77/90/86; reject and restore formal best",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "17",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "84.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T17:21:55+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132033"
     }
   ],
   "version": 2

@@ -307,8 +307,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_MMA_LDS(b_frag[rowi][coli * 4], shared_b_tensor(lds_row_b[rowi], lds_col[coli]), MmaLoad128)
 
 #define XH_CVT_F32_TO_BF16(dst, src0, src1)                                                       \
-    src0 += 0x8000;                                                                               \
-    src1 += 0x8000;                                                                               \
+    src0 = ((src0 >> 16) & 1) + src0 + 0x7fff;                                                   \
+    src1 = ((src1 >> 16) & 1) + src1 + 0x7fff;                                                   \
     dst = __builtin_mxc_byte_perm(src0, src1, 0x03020706)
 
     const int tid = threadIdx.x;
