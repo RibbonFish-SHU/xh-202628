@@ -1078,22 +1078,10 @@ static inline void launch(
     if (use_global_sort_map) {
         build_case2_full_expert_sort_map_kernel
             <<<1, kOutputScratchSortTiles>>>(expert_ids);
-        if (use_prefill_down_module_full_expert_sort(config)) {
-            fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>
-                <<<grid, block>>>(
-                    a,
-                    b_col_major,
-                    scale_a,
-                    scale_b,
-                    moe_weights,
-                    expert_ids,
-                    out,
-                    config.em,
-                    config.n,
-                    config.k
-                );
-        } else {
-            fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168><<<grid, block>>>(
+    }
+    if (use_prefill_down_module_full_expert_sort(config)) {
+        fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>
+            <<<grid, block>>>(
                 a,
                 b_col_major,
                 scale_a,
@@ -1105,9 +1093,21 @@ static inline void launch(
                 config.n,
                 config.k
             );
-        }
-    } else {
+    } else if (!use_global_sort_map) {
         fused_moe_i8_tn_mma_kernel<false, 0, 0, 0><<<grid, block>>>(
+            a,
+            b_col_major,
+            scale_a,
+            scale_b,
+            moe_weights,
+            expert_ids,
+            out,
+            config.em,
+            config.n,
+            config.k
+        );
+    } else {
+        fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168><<<grid, block>>>(
             a,
             b_col_major,
             scale_a,
