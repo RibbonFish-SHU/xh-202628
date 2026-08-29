@@ -1538,6 +1538,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T20:46:27+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/132232"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-239-case2-hist-serp-loadk-ties-away",
+      "claim_id": "claim-ac219df8fcc14a0181c6f5dad8ff8021",
+      "commit": "75a531a4a125bf24be16a220564834f05c8520d8",
+      "evidence": "artifacts/raw/xpuoj/132271",
+      "experiment": "exp-20260830-239",
+      "id": "132271",
+      "language": "CUDA Maca",
+      "notes": "exp-239 four-component case2 composition accepted but regressed to 86/77/89/86 at 0.809/6.444/0.496/3.453 ms; reject and restore formal best",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "16",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "84.50",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T21:29:23+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132271"
     }
   ],
   "version": 2
