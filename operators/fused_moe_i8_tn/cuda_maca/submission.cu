@@ -48,6 +48,9 @@ static inline int mma_grid_x(const KernelConfig& config) {
 
 constexpr int kOutputScratchSortTiles = 256;
 constexpr int kOutputScratchSortGridM = 8;
+constexpr int kFullSortPayloadTileBits = 8;
+constexpr uint32_t kFullSortPayloadTileMask =
+    (1U << kFullSortPayloadTileBits) - 1U;
 
 static inline bool use_case2_output_scratch_expert_sort(const KernelConfig& config) {
     return config.em == 32768 && config.n == 4096 && config.k == 7168;
@@ -106,6 +109,25 @@ __global__ void build_output_scratch_expert_sort_map_kernel(
 
 __device__ int32_t g_case2_full_expert_sort_map[kOutputScratchSortTiles];
 
+__host__ __device__ __forceinline__ int32_t pack_full_sort_payload(
+    int expert,
+    int logical_tile_m
+) {
+    return static_cast<int32_t>(
+        (static_cast<uint32_t>(expert) << kFullSortPayloadTileBits)
+        | static_cast<uint32_t>(logical_tile_m));
+}
+
+__host__ __device__ __forceinline__ int unpack_full_sort_tile(int32_t payload) {
+    return static_cast<int>(
+        static_cast<uint32_t>(payload) & kFullSortPayloadTileMask);
+}
+
+__host__ __device__ __forceinline__ int unpack_full_sort_expert(int32_t payload) {
+    return static_cast<int>(
+        static_cast<uint32_t>(payload) >> kFullSortPayloadTileBits);
+}
+
 __host__ __device__ __forceinline__ int case2_full_stable_sort_rank(
     const int32_t* expert_ids,
     int logical_tile_m,
@@ -125,11 +147,30 @@ __global__ void build_case2_full_expert_sort_map_kernel(
     const int32_t* __restrict__ expert_ids
 ) {
     const int logical_tile_m = threadIdx.x;
-    if (logical_tile_m < kOutputScratchSortTiles) {
-        const int physical_tile_m = case2_full_stable_sort_rank(
-            expert_ids, logical_tile_m, kOutputScratchSortTiles);
-        g_case2_full_expert_sort_map[physical_tile_m] = logical_tile_m;
+    __shared__ int32_t expert_offsets[kOutputScratchSortTiles];
+
+    expert_offsets[logical_tile_m] = 0;
+    __syncthreads();
+
+    const int expert = expert_ids[logical_tile_m];
+    atomicAdd(&expert_offsets[expert], 1);
+    __syncthreads();
+
+    if (logical_tile_m == 0) {
+        int32_t next_offset = 0;
+        for (int current_expert = 0;
+             current_expert < kOutputScratchSortTiles;
+             ++current_expert) {
+            const int32_t expert_count = expert_offsets[current_expert];
+            expert_offsets[current_expert] = next_offset;
+            next_offset += expert_count;
+        }
     }
+    __syncthreads();
+
+    const int physical_tile_m = atomicAdd(&expert_offsets[expert], 1);
+    g_case2_full_expert_sort_map[physical_tile_m] =
+        pack_full_sort_payload(expert, logical_tile_m);
 }
 
 static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs) {
@@ -251,7 +292,12 @@ constexpr int kMmaSharedBytes = kMmaSharedABytes + kMmaSharedBBytes;
 #define XH_MMA_I8(a, b, c) 0
 #endif
 
-template <bool kUseOutputScratchExpertSort, int kFixedEm, int kFixedN, int kFixedK>
+template <
+    bool kUseOutputScratchExpertSort,
+    int kFixedEm,
+    int kFixedN,
+    int kFixedK,
+    bool kUseClusterNSerpentine = false>
 __global__ void fused_moe_i8_tn_mma_kernel(
     const int8_t* __restrict__ a_ptr,
     const int8_t* __restrict__ b_ptr,
@@ -279,7 +325,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 
 #define XH_LDG_A_STAGE_I(ldgi)                                                                    \
     load_a_##ldgi = __builtin_mxc_ldg_b128(                                                       \
-        a_base + load_a_row_offset[ldgi] + load_k,                                                \
+        a_base + load_a_row_offset[ldgi]                                                          \
+            + (kUseCase2FixedNkU32BLocalOffsets ? 0 : load_k),                                   \
         0,                                                                                         \
         -1,                                                                                        \
         true,                                                                                      \
@@ -307,13 +354,15 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     XH_MMA_LDS(b_frag[rowi][coli * 4], shared_b_tensor(lds_row_b[rowi], lds_col[coli]), MmaLoad128)
 
 #define XH_CVT_F32_TO_BF16(dst, src0, src1)                                                       \
-    src0 = ((src0 >> 16) & 1) + src0 + 0x7fff;                                                   \
-    src1 = ((src1 >> 16) & 1) + src1 + 0x7fff;                                                   \
+    src0 += 0x8000;                                                                               \
+    src1 += 0x8000;                                                                               \
     dst = __builtin_mxc_byte_perm(src0, src1, 0x03020706)
 
     const int tid = threadIdx.x;
     const int physical_tile_m = blockIdx.x + blockIdx.z * gridDim.x;
-    const int tile_n = blockIdx.y;
+    const int tile_n = kUseClusterNSerpentine && (blockIdx.z & 1)
+        ? gridDim.y - 1 - blockIdx.y
+        : blockIdx.y;
     const int wave = tid / kMmaWaveSize;
     const int lane = tid % kMmaWaveSize;
 
@@ -321,8 +370,11 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         return;
     }
 
-    const int tile_m = kUseOutputScratchExpertSort
+    const int32_t sort_payload = kUseOutputScratchExpertSort
         ? g_case2_full_expert_sort_map[physical_tile_m]
+        : 0;
+    const int tile_m = kUseOutputScratchExpertSort
+        ? unpack_full_sort_tile(sort_payload)
         : physical_tile_m;
     const int row_base = tile_m * kMmaTileM;
 
@@ -330,7 +382,9 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     int8_t* shared_a = shared_data;
     int8_t* shared_b = shared_a + kMmaSharedABytes;
 
-    const int expert = expert_ids_ptr[tile_m];
+    const int expert = kUseOutputScratchExpertSort
+        ? unpack_full_sort_expert(sort_payload)
+        : expert_ids_ptr[tile_m];
     const int8_t* expert_b =
         b_ptr + static_cast<uint64_t>(expert) * n * k;
 
@@ -366,7 +420,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
         const int routed_row = row_base + load_a_row_base + kMmaRowsPerLoad * i;
-        load_a_row_offset[i] = routed_row * k;
+        load_a_row_offset[i] = routed_row * k
+            + (kUseCase2FixedNkU32BLocalOffsets ? load_k : 0);
     }
     {
         const int candidate_col = load_b_row_base;
@@ -469,7 +524,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
             MACA_ICMP_SLT);
     }
     load_a_0 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[0] + load_k,
+        a_base + load_a_row_offset[0]
+            + (kUseCase2FixedNkU32BLocalOffsets ? 0 : load_k),
         0,
         -1,
         true,
@@ -477,7 +533,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false,
         false);
     load_a_1 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[1] + load_k,
+        a_base + load_a_row_offset[1]
+            + (kUseCase2FixedNkU32BLocalOffsets ? 0 : load_k),
         0,
         -1,
         true,
@@ -485,7 +542,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false,
         false);
     load_a_2 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[2] + load_k,
+        a_base + load_a_row_offset[2]
+            + (kUseCase2FixedNkU32BLocalOffsets ? 0 : load_k),
         0,
         -1,
         true,
@@ -493,7 +551,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         false,
         false);
     load_a_3 = __builtin_mxc_ldg_b128(
-        a_base + load_a_row_offset[3] + load_k,
+        a_base + load_a_row_offset[3]
+            + (kUseCase2FixedNkU32BLocalOffsets ? 0 : load_k),
         0,
         -1,
         true,
@@ -1093,7 +1152,8 @@ static inline void launch(
                     config.k
                 );
         } else {
-            fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168><<<grid, block>>>(
+            fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168, true>
+                <<<grid, block>>>(
                 a,
                 b_col_major,
                 scale_a,
