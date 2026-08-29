@@ -1518,6 +1518,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T20:05:55+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/132202"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-238-case2-hist-ties-away-score-combo",
+      "claim_id": "claim-f014d30f0f934e8fb7426009679a9348",
+      "commit": "6c07dec4358c709976eef75378a69535cd69023f",
+      "evidence": "artifacts/raw/xpuoj/132232",
+      "experiment": "exp-20260830-238",
+      "id": "132232",
+      "language": "CUDA Maca",
+      "notes": "exp-238 histogram packed-map plus ties-away matched formal 84.75; cases 86/77/90/86 at 0.801/6.439/0.489/3.454 ms; reject and restore formal best",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "17",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "84.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T20:46:27+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132232"
     }
   ],
   "version": 2
