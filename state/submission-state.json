@@ -1394,6 +1394,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T06:43:36+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/131137"
+    },
+    {
+      "candidate_id": "cand-exp-20260829-221-case2-bitonic-packed-oj",
+      "claim_id": "claim-1e6d56547af9464d87bba00fa1ef4cc5",
+      "commit": "8d25138235f40e480ba63cf0d56094f4a888ad4c",
+      "evidence": "artifacts/raw/xpuoj/131184",
+      "experiment": "exp-20260829-221",
+      "id": "131184",
+      "language": "CUDA Maca",
+      "notes": "4/4 Accepted tie; cases 86/77/90/86 at 0.808/6.474/0.489/3.486 ms; leaderboard rank 16",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "16",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "84.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T07:40:40+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/131184"
     }
   ],
   "version": 2

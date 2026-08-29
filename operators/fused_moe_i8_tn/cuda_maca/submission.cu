@@ -48,9 +48,6 @@ static inline int mma_grid_x(const KernelConfig& config) {
 
 constexpr int kOutputScratchSortTiles = 256;
 constexpr int kOutputScratchSortGridM = 8;
-constexpr int kFullSortPayloadTileBits = 8;
-constexpr uint32_t kFullSortPayloadTileMask =
-    (1U << kFullSortPayloadTileBits) - 1U;
 
 static inline bool use_case2_output_scratch_expert_sort(const KernelConfig& config) {
     return config.em == 32768 && config.n == 4096 && config.k == 7168;
@@ -109,25 +106,6 @@ __global__ void build_output_scratch_expert_sort_map_kernel(
 
 __device__ int32_t g_case2_full_expert_sort_map[kOutputScratchSortTiles];
 
-__host__ __device__ __forceinline__ int32_t pack_full_sort_payload(
-    int expert,
-    int logical_tile_m
-) {
-    return static_cast<int32_t>(
-        (static_cast<uint32_t>(expert) << kFullSortPayloadTileBits)
-        | static_cast<uint32_t>(logical_tile_m));
-}
-
-__host__ __device__ __forceinline__ int unpack_full_sort_tile(int32_t payload) {
-    return static_cast<int>(
-        static_cast<uint32_t>(payload) & kFullSortPayloadTileMask);
-}
-
-__host__ __device__ __forceinline__ int unpack_full_sort_expert(int32_t payload) {
-    return static_cast<int>(
-        static_cast<uint32_t>(payload) >> kFullSortPayloadTileBits);
-}
-
 __host__ __device__ __forceinline__ int case2_full_stable_sort_rank(
     const int32_t* expert_ids,
     int logical_tile_m,
@@ -147,36 +125,11 @@ __global__ void build_case2_full_expert_sort_map_kernel(
     const int32_t* __restrict__ expert_ids
 ) {
     const int logical_tile_m = threadIdx.x;
-    __shared__ int32_t sort_payloads[kOutputScratchSortTiles];
-
-    const int expert = expert_ids[logical_tile_m];
-    sort_payloads[logical_tile_m] =
-        pack_full_sort_payload(expert, logical_tile_m);
-    __syncthreads();
-
-#pragma unroll
-    for (int sort_size = 2;
-         sort_size <= kOutputScratchSortTiles;
-         sort_size <<= 1) {
-#pragma unroll
-        for (int stride = sort_size >> 1; stride > 0; stride >>= 1) {
-            const int partner = logical_tile_m ^ stride;
-            if (partner > logical_tile_m) {
-                const int32_t left = sort_payloads[logical_tile_m];
-                const int32_t right = sort_payloads[partner];
-                const bool ascending = (logical_tile_m & sort_size) == 0;
-                const bool swap = ascending ? left > right : left < right;
-                if (swap) {
-                    sort_payloads[logical_tile_m] = right;
-                    sort_payloads[partner] = left;
-                }
-            }
-            __syncthreads();
-        }
+    if (logical_tile_m < kOutputScratchSortTiles) {
+        const int physical_tile_m = case2_full_stable_sort_rank(
+            expert_ids, logical_tile_m, kOutputScratchSortTiles);
+        g_case2_full_expert_sort_map[physical_tile_m] = logical_tile_m;
     }
-
-    g_case2_full_expert_sort_map[logical_tile_m] =
-        sort_payloads[logical_tile_m];
 }
 
 static inline bool same_config(const KernelConfig& lhs, const KernelConfig& rhs) {
@@ -368,11 +321,8 @@ __global__ void fused_moe_i8_tn_mma_kernel(
         return;
     }
 
-    const int32_t sort_payload = kUseOutputScratchExpertSort
-        ? g_case2_full_expert_sort_map[physical_tile_m]
-        : 0;
     const int tile_m = kUseOutputScratchExpertSort
-        ? unpack_full_sort_tile(sort_payload)
+        ? g_case2_full_expert_sort_map[physical_tile_m]
         : physical_tile_m;
     const int row_base = tile_m * kMmaTileM;
 
@@ -380,9 +330,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     int8_t* shared_a = shared_data;
     int8_t* shared_b = shared_a + kMmaSharedABytes;
 
-    const int expert = kUseOutputScratchExpertSort
-        ? unpack_full_sort_expert(sort_payload)
-        : expert_ids_ptr[tile_m];
+    const int expert = expert_ids_ptr[tile_m];
     const int8_t* expert_b =
         b_ptr + static_cast<uint64_t>(expert) * n * k;
 
