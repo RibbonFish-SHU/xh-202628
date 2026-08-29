@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
+from scripts.tests.test_case2_serp_hist_pred_loadk_score import reverse_to_baseline
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,7 +90,9 @@ class Case4ModuleFullSortTests(unittest.TestCase):
         self.assertEqual(pattern_count, 9840)
 
     def test_dispatch_uses_the_existing_module_map_without_cleanup(self) -> None:
-        source = reverse_to_formal_best(SOURCE.read_text(encoding="utf-8"))
+        source = reverse_to_formal_best(
+            reverse_to_baseline(SOURCE.read_text(encoding="utf-8"))
+        )
         case2_selector = function_body(
             source, "use_case2_output_scratch_expert_sort("
         )
@@ -132,9 +135,9 @@ class Case4ModuleFullSortTests(unittest.TestCase):
         self.assertNotIn("<true, 0, 4096, 7168>", launch)
         self.assertNotIn("kFixedEm", launch)
         self.assertNotIn("tile_zero", launch)
-        self.assertIn("const int partner = logical_tile_m ^ stride", builder)
+        self.assertIn("case2_full_stable_sort_rank(", builder)
         self.assertIn(
-            "pack_full_sort_payload(expert, logical_tile_m)",
+            "g_case2_full_expert_sort_map[physical_tile_m] = logical_tile_m",
             builder,
         )
 
