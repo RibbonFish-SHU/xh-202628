@@ -1598,6 +1598,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T22:59:57+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/132350"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-243-k128-before-m4-boundary",
+      "claim_id": "claim-b3d62fc60d2449f3a15f7aa8fb11ed1e",
+      "commit": "0da01f0845a0042d1337ed58b13a7a5265f24292",
+      "evidence": "artifacts/raw/xpuoj/132378",
+      "experiment": "exp-20260830-243",
+      "id": "132378",
+      "language": "CUDA Maca",
+      "notes": "exp-243 whole K128-before-m4 boundary preserved 86/77/90/86 at 0.804/6.445/0.490/3.484 ms; tie rejected and formal best will be restored",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "17",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "84.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T23:37:26+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132378"
     }
   ],
   "version": 2
