@@ -4,7 +4,10 @@ import unittest
 from pathlib import Path
 
 from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
-from scripts.tests.test_full_sort_bitonic_packed_score import reverse_to_baseline
+from scripts.tests.test_case2_serp_hist_pred_loadk_score import (
+    CANDIDATE_CASE2_LAUNCH,
+    reverse_to_baseline,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,9 +81,7 @@ class SyncM4HybridTest(unittest.TestCase):
         self.assertTrue(uses_m4(4096, 7168, 2048))
         self.assertFalse(uses_m4(32768, 7168, 2048))
         self.assertFalse(uses_m4(128, 128, 128))
-        self.assertIn(
-            "fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168>", candidate
-        )
+        self.assertIn(CANDIDATE_CASE2_LAUNCH, candidate)
         self.assertNotIn("fused_moe_i8_tn_mma_kernel<true, 0, 0, 0>", candidate)
         self.assertIn("fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>", candidate)
 

@@ -15,7 +15,10 @@ from scripts.tests.test_case2_fixed_nk_u32_brow import (
     reverse_to_formal_best,
     row_and_k_offset,
 )
-from scripts.tests.test_full_sort_bitonic_packed_score import reverse_to_baseline
+from scripts.tests.test_case2_serp_hist_pred_loadk_score import (
+    CANDIDATE_CASE2_LAUNCH as EXP227_CASE2_LAUNCH,
+    reverse_to_baseline,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,7 +39,7 @@ class SyncM4Case2FixedU32HybridTests(unittest.TestCase):
 
     def test_dispatches_keep_decode_m4_and_only_specialize_case2(self) -> None:
         self.assertEqual(self.source.count(POLICY_BLOCK), 1)
-        self.assertEqual(self.source.count(CANDIDATE_CASE2_LAUNCH), 1)
+        self.assertEqual(self.source.count(EXP227_CASE2_LAUNCH), 1)
         self.assertIn(
             "fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>", self.source
         )
