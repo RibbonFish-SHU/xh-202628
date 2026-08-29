@@ -32,15 +32,6 @@ static inline void launch_decode(
     const int32_t* expert_ids,
     __nv_bfloat16* out,
     const KernelConfig& config);
-static inline void launch_sorted_prefill(
-    const int8_t* a,
-    const int8_t* b_col_major,
-    const float* scale_a,
-    const float* scale_b,
-    const float* moe_weights,
-    const int32_t* expert_ids,
-    __nv_bfloat16* out,
-    const KernelConfig& config);
 }  // namespace sync_m4
 #endif
 
@@ -1073,13 +1064,6 @@ static inline void launch(
             a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config);
         return;
     }
-    if (use_prefill_down_module_full_expert_sort(config)) {
-        build_case2_full_expert_sort_map_kernel
-            <<<1, kOutputScratchSortTiles>>>(expert_ids);
-        sync_m4::launch_sorted_prefill(
-            a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config);
-        return;
-    }
     const dim3 block(kMmaThreads);
     const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
     const bool use_global_sort_map =
@@ -1301,7 +1285,6 @@ struct Arguments {
                                &(gB(ldg_b_offs_n[stage][i], ldg_k, tilek)),                       \
                                0, -1, true, true, false, false);
 
-template <bool kUseFullExpertSort>
 __global__ void direct_moe_kernel_m4(Arguments args) {
     int *expert_ids_ptr = args.moe_params.expert_ids;
     int *token_ids_ptr = args.moe_params.token_ids;
@@ -1309,10 +1292,10 @@ __global__ void direct_moe_kernel_m4(Arguments args) {
     const int N = args.problem_size.n_;
     const int K = args.problem_size.k_;
 
-    int tidx          = threadIdx.x;
-    int physical_bidx = blockIdx.x + blockIdx.z * gridDim.x;
-    int bidy          = blockIdx.y;
-    int wave_id       = tidx / 64;
+    int tidx    = threadIdx.x;
+    int bidx    = blockIdx.x + blockIdx.z * gridDim.x;
+    int bidy    = blockIdx.y;
+    int wave_id = tidx / 64;
 
     __shared__ T smem[(kABSize + kABSize)];  // 64 KB: A(32KB) + B(32KB), single buffer
     uint8_t *bsm_ldgA = (uint8_t*)smem + kLdgSizePerWave * wave_id;
@@ -1320,11 +1303,7 @@ __global__ void direct_moe_kernel_m4(Arguments args) {
     T *smem_A = (T*)smem;
     T *smem_B = smem_A + kABSize;
 
-    if (physical_bidx * kTileM >= EM) { return; }
-
-    const int bidx = kUseFullExpertSort
-        ? g_case2_full_expert_sort_map[physical_bidx]
-        : physical_bidx;
+    if (bidx * kTileM >= EM) { return; }
 
     int group_idx = expert_ids_ptr[bidx];
     int prev_m    = bidx * kTileM;
@@ -1732,29 +1711,7 @@ static inline void launch_decode(
     const int grid_m = (cfg.em + kTileM - 1) / kTileM;
     const int grid_y = (cfg.n + kTileN - 1) / kTileN;
     const dim3 grid(1, grid_y, grid_m);
-    direct_moe_kernel_m4<false><<<grid, block>>>(args);
-}
-
-static inline void launch_sorted_prefill(
-    const int8_t* a,
-    const int8_t* b_col_major,
-    const float* scale_a,
-    const float* scale_b,
-    const float* moe_weights,
-    const int32_t* expert_ids,
-    __nv_bfloat16* out,
-    const KernelConfig& cfg
-) {
-    Arguments args(
-        BatchedGemmCoord(cfg.em, cfg.n, cfg.k, 256),
-        EpilogueOutputOp(scale_a, scale_b, moe_weights),
-        a, b_col_major, out,
-        MoeParams(const_cast<int*>(expert_ids),
-                  reinterpret_cast<int*>(const_cast<int8_t*>(a)),
-                  cfg.em, 8, true));
-    const dim3 block(kThreadNum, 1, 1);
-    const dim3 grid(8, 56, 32);
-    direct_moe_kernel_m4<true><<<grid, block>>>(args);
+    direct_moe_kernel_m4<<<grid, block>>>(args);
 }
 
 }  // namespace sync_m4

@@ -1498,6 +1498,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T18:54:43+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/132136"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-237-case4-sorted-sync-m4",
+      "claim_id": "claim-4d74bf5d534f4da89d729bc11ea460c5",
+      "commit": "469c9f23e2f932555cecc09effcefde2b5ce8117",
+      "evidence": "artifacts/raw/xpuoj/132202",
+      "experiment": "exp-20260830-237",
+      "id": "132202",
+      "language": "CUDA Maca",
+      "notes": "exp-237 exact sorted case4 sync-m4 route preserved correctness but regressed OJ to 86/72/89/85 at 0.815/8.605/0.497/3.687 ms; reject and restore formal best",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "17",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "83.00",
+      "status": "Accepted",
+      "submitted_at": "2026-08-29T20:05:55+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132202"
     }
   ],
   "version": 2
