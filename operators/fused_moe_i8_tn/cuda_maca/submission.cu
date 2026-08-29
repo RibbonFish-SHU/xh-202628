@@ -1057,30 +1057,40 @@ static inline void launch(
     const KernelConfig& config
 ) {
 #if XH_FUSED_MOE_MACA
-    if (config.em == 4096
+    const bool use_decode_m4 = config.em == 4096
         && ((config.n == 4096 && config.k == 7168)
-            || (config.n == 7168 && config.k == 2048))) {
-        sync_m4::launch_decode(
-            a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config);
-        return;
-    }
-    const dim3 block(kMmaThreads);
-    const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
-    const bool use_global_sort_map =
-        use_case2_output_scratch_expert_sort(config)
-        || use_prefill_down_module_full_expert_sort(config);
-    const int grid_x = module_full_sort_launch_grid_x(config);
-    const dim3 grid(
-        grid_x,
-        (config.n + kMmaTileN - 1) / kMmaTileN,
-        (grid_m + grid_x - 1) / grid_x
-    );
-    if (use_global_sort_map) {
-        build_case2_full_expert_sort_map_kernel
-            <<<1, kOutputScratchSortTiles>>>(expert_ids);
-        if (use_prefill_down_module_full_expert_sort(config)) {
-            fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>
-                <<<grid, block>>>(
+            || (config.n == 7168 && config.k == 2048));
+    if (!use_decode_m4) {
+        const dim3 block(kMmaThreads);
+        const int grid_m = (config.em + kMmaTileM - 1) / kMmaTileM;
+        const bool use_global_sort_map =
+            use_case2_output_scratch_expert_sort(config)
+            || use_prefill_down_module_full_expert_sort(config);
+        const int grid_x = module_full_sort_launch_grid_x(config);
+        const dim3 grid(
+            grid_x,
+            (config.n + kMmaTileN - 1) / kMmaTileN,
+            (grid_m + grid_x - 1) / grid_x
+        );
+        if (use_global_sort_map) {
+            build_case2_full_expert_sort_map_kernel
+                <<<1, kOutputScratchSortTiles>>>(expert_ids);
+            if (use_prefill_down_module_full_expert_sort(config)) {
+                fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>
+                    <<<grid, block>>>(
+                        a,
+                        b_col_major,
+                        scale_a,
+                        scale_b,
+                        moe_weights,
+                        expert_ids,
+                        out,
+                        config.em,
+                        config.n,
+                        config.k
+                    );
+            } else {
+                fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168><<<grid, block>>>(
                     a,
                     b_col_major,
                     scale_a,
@@ -1092,8 +1102,9 @@ static inline void launch(
                     config.n,
                     config.k
                 );
+            }
         } else {
-            fused_moe_i8_tn_mma_kernel<true, 0, 4096, 7168><<<grid, block>>>(
+            fused_moe_i8_tn_mma_kernel<false, 0, 0, 0><<<grid, block>>>(
                 a,
                 b_col_major,
                 scale_a,
@@ -1106,20 +1117,10 @@ static inline void launch(
                 config.k
             );
         }
-    } else {
-        fused_moe_i8_tn_mma_kernel<false, 0, 0, 0><<<grid, block>>>(
-            a,
-            b_col_major,
-            scale_a,
-            scale_b,
-            moe_weights,
-            expert_ids,
-            out,
-            config.em,
-            config.n,
-            config.k
-        );
+        return;
     }
+    sync_m4::launch_decode(
+        a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config);
 #else
     constexpr int BLOCK_M = 32;
     constexpr int BLOCK_N = 32;
