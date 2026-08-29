@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from scripts.tests.test_case2_fixed_nk_u32_brow import reverse_to_formal_best
-from scripts.tests.test_case2_serp_hist_pred_loadk_score import (
+from scripts.tests.test_case2_hist_serp_loadk import (
     CANDIDATE_CASE2_LAUNCH,
     reverse_to_baseline,
 )
