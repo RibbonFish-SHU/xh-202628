@@ -1618,6 +1618,26 @@
       "status": "Accepted",
       "submitted_at": "2026-08-29T23:37:26+00:00",
       "url": "https://xpuoj.com/contest/12/submissions/132378"
+    },
+    {
+      "candidate_id": "cand-exp-20260830-244-triton-eviction-policy-oj-replay",
+      "claim_id": "claim-d3bfcdab7f824be6b35915c48b9ae2a5",
+      "commit": "ad8f4ebef1d41877efd7246d882a9a7485120d12",
+      "evidence": "artifacts/raw/xpuoj/132434",
+      "experiment": "exp-20260830-244",
+      "id": "132434",
+      "language": "Triton",
+      "notes": "exp-244 exact public Triton cache-hint replay accepted 4/4 but regressed to 81/72/86/80 at 1.121/9.x/0.672/5.x ms; reject, formal CUDA best remains 84.75",
+      "operator": "Fused MoE i8 tn",
+      "previous_score": "84.75",
+      "rank": "17",
+      "report_summary": null,
+      "reported_at": null,
+      "reported_to_user": false,
+      "score": "79.75",
+      "status": "Accepted",
+      "submitted_at": "2026-08-30T00:37:04+00:00",
+      "url": "https://xpuoj.com/contest/12/submissions/132434"
     }
   ],
   "version": 2
