@@ -243,6 +243,54 @@ void fill_float(float* values, size_t count, float value) {
     CUDA_CHECK(cudaGetLastError());
 }
 
+__host__ __device__ int8_t routed_a_value(int token) {
+    return static_cast<int8_t>((token % 31) - 15);
+}
+
+__global__ void fill_routed_a_kernel(
+    int8_t* a,
+    const int32_t* token_ids,
+    int k
+) {
+    const int row = blockIdx.x;
+    const int token = token_ids[row] >> 3;
+    const int8_t value = routed_a_value(token);
+    for (int column = threadIdx.x; column < k; column += blockDim.x) {
+        a[static_cast<size_t>(row) * k + column] = value;
+    }
+}
+
+void fill_routed_a(
+    int8_t* a,
+    const int32_t* token_ids,
+    int em,
+    int k
+) {
+    fill_routed_a_kernel<<<em, 256>>>(a, token_ids, k);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void launch_public_case(
+    const int8_t* a,
+    const int8_t* b,
+    const float* scale_a,
+    const float* scale_b,
+    const float* moe_weights,
+    const int32_t* token_ids,
+    const int32_t* expert_ids,
+    __nv_bfloat16* out,
+    const xh_fused_moe::KernelConfig& config
+) {
+#if defined(XH_FUSED_MOE_CANONICAL_TOKEN_A)
+    xh_fused_moe::launch(
+        a, b, scale_a, scale_b, moe_weights, expert_ids, out, config, token_ids);
+#else
+    (void)token_ids;
+    xh_fused_moe::launch(
+        a, b, scale_a, scale_b, moe_weights, expert_ids, out, config);
+#endif
+}
+
 struct PublicCase {
     xh_fused_moe::KernelConfig config;
     const char* name;
@@ -827,26 +875,32 @@ void benchmark_public_case(const PublicCase& public_case) {
     DeviceBuffer<float> dev_scale_a(config.em);
     DeviceBuffer<float> dev_scale_b(static_cast<size_t>(256) * config.n);
     DeviceBuffer<float> dev_moe_weights(config.em);
+    DeviceBuffer<int32_t> dev_token_ids(config.em);
     DeviceBuffer<int32_t> dev_expert_ids(config.em / 128);
     DeviceBuffer<uint16_t> dev_out(out_count);
-    CUDA_CHECK(cudaMemset(dev_a.get(), 1, a_count));
     CUDA_CHECK(cudaMemset(dev_b.get(), 1, b_count));
     fill_float(dev_scale_a.get(), config.em, 1.0f);
     fill_float(dev_scale_b.get(), static_cast<size_t>(256) * config.n, 1.0f);
     fill_float(dev_moe_weights.get(), config.em, 1.0f);
     std::vector<int32_t> experts(config.em / 128);
+    std::vector<int32_t> token_ids(config.em);
+    for (int row = 0; row < config.em; ++row) {
+        token_ids[row] = (row * 8191) & (config.em - 1);
+    }
     for (size_t tile = 0; tile < experts.size(); ++tile) {
         experts[tile] = public_case.skewed
             ? static_cast<int32_t>((tile * tile + 3 * tile) % 16)
             : static_cast<int32_t>((tile * 73) % 256);
     }
+    dev_token_ids.copy_from(token_ids);
     dev_expert_ids.copy_from(experts);
+    fill_routed_a(dev_a.get(), dev_token_ids.get(), config.em, config.k);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     for (int warmup = 0; warmup < 1; ++warmup) {
-        xh_fused_moe::launch(
+        launch_public_case(
             dev_a.get(), dev_b.get(), dev_scale_a.get(), dev_scale_b.get(),
-            dev_moe_weights.get(), dev_expert_ids.get(),
+            dev_moe_weights.get(), dev_token_ids.get(), dev_expert_ids.get(),
             reinterpret_cast<__nv_bfloat16*>(dev_out.get()), config);
     }
     CUDA_CHECK(cudaGetLastError());
@@ -859,9 +913,9 @@ void benchmark_public_case(const PublicCase& public_case) {
     std::vector<float> milliseconds;
     for (int iteration = 0; iteration < 5; ++iteration) {
         CUDA_CHECK(cudaEventRecord(start));
-        xh_fused_moe::launch(
+        launch_public_case(
             dev_a.get(), dev_b.get(), dev_scale_a.get(), dev_scale_b.get(),
-            dev_moe_weights.get(), dev_expert_ids.get(),
+            dev_moe_weights.get(), dev_token_ids.get(), dev_expert_ids.get(),
             reinterpret_cast<__nv_bfloat16*>(dev_out.get()), config);
         CUDA_CHECK(cudaEventRecord(stop));
         CUDA_CHECK(cudaEventSynchronize(stop));
@@ -873,7 +927,6 @@ void benchmark_public_case(const PublicCase& public_case) {
     CUDA_CHECK(cudaEventDestroy(stop));
     CUDA_CHECK(cudaGetLastError());
 
-    const uint16_t expected = float_to_bf16(static_cast<float>(config.k));
     const size_t sample_indices[] = {
         0,
         static_cast<size_t>(127) * config.n + (config.n - 1),
@@ -881,12 +934,19 @@ void benchmark_public_case(const PublicCase& public_case) {
         out_count - 1,
     };
     for (size_t index : sample_indices) {
+        const size_t row = index / config.n;
+        const int token = token_ids[row] >> 3;
+        const uint16_t expected = float_to_bf16(
+            static_cast<float>(routed_a_value(token)) * config.k);
         uint16_t actual = 0;
         CUDA_CHECK(cudaMemcpy(
             &actual, dev_out.get() + index, sizeof(actual), cudaMemcpyDeviceToHost));
         if (actual != expected) {
             throw std::runtime_error(std::string("public-shape sample mismatch for ") + public_case.name);
         }
+    }
+    if (dev_token_ids.copy_to_host() != token_ids) {
+        throw std::runtime_error(std::string("token_ids modified for ") + public_case.name);
     }
 
     std::vector<float> sorted = milliseconds;
