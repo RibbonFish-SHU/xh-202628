@@ -263,7 +263,7 @@
 | Agent OJ 提交次数 | 81 | 最新 `#132434` 为 Triton 4/4 Accepted 79.75、排名 17，已 finalized 并释放槽位；正式最佳仍为 `#130490` 的 CUDA Maca 84.75。 |
 | 待向用户报告的提交 | 0 | 既有终态均已在用户恢复期间登记为 reported；不阻塞下一 claim。 |
 | 并行编排工作流 | c500-native | Main Agent 统一管理隔离 Subagent、唯一 C500 ABBA 验证槽和唯一 XPU-OJ active claim |
-| 当前并行批次 | post-exp-258-formal-clean | 正式基线仍为 `8341aa38e55659285673111df90e786c1fba08df` / OJ `#130490` / 84.75 / 最新已知排名 17，目标 85.50 仍需三个显示分。exp-249 至 exp-258 已关闭 decode u32 地址、K64/partial two-ahead、六 load 头部提前、MXCC scheduler、dual-M shared-B、expert-aligned width-seven 和 cluster-fenced multi-launch；其中 exp-258 的 32 次顺序 case-2 launch 在 C500 回退 `35.1444%`。活动 CUDA source 始终为 formal blob `48704a2870975c3990f4681089b1a4efc35d99fa` / LF SHA-256 `083eb1262dbe220aea0c2b324a00f2cf9b14720dc2b8c1701b261f794eaf8cf1`。继续只分配能够解释至少三个 raw points 的新结构机制；两个明确保留残稿保持不动。 |
+| 当前并行批次 | post-exp-259-formal-clean | 正式基线仍为 `8341aa38e55659285673111df90e786c1fba08df` / OJ `#130490` / 84.75 / 最新已知排名 17，目标 85.50 仍需三个显示分。exp-249 至 exp-259 已关闭 decode u32 地址、K64/partial two-ahead、六 load 头部提前、MXCC scheduler、dual-M shared-B、expert-aligned width-seven 和 cluster-fenced multi-launch；其中 exp-259 的 decode-m4 memflow scheduler 只改善 case 1 `0.7652%`，case 3 反而回退 `0.0949%`，远未覆盖完整三分路径。活动 CUDA source 始终为 formal blob `48704a2870975c3990f4681089b1a4efc35d99fa` / LF SHA-256 `083eb1262dbe220aea0c2b324a00f2cf9b14720dc2b8c1701b261f794eaf8cf1`。继续只分配能够解释至少三个 raw points 的新结构机制；两个明确保留残稿保持不动。 |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
 机器可读当前门禁见 `state/c500-execution.json`；`state/remote-execution.json` 仅保留已停用 NVIDIA 历史配置。
@@ -326,6 +326,8 @@
 - 结果全部保留且不自动删除；达到空间门禁时停止并报告。
 
 ## 当前技术阶段与下一步
+
+- 2026-08-31 `exp-20260831-259` 只给 synchronous decode K256 m4 加 `__schedule_category__(8)`，由 MXCC 选择 `metaxgpu-memflow` machine scheduler；所有 executable operations、mapping、同步、资源、prefill 与 ABI 保持 exact。focused/workflow `14/14`、C500 双臂 build、3/3 correctness、完整 regression、sampled/read-only、source/tree integrity 与 `31/31` manifest 全过，m4 资源仍为 `0 stack / 256 MT / 52 ST / 65536 shared / 2 warps`。ABBA case 1 从 `0.8495` 到 `0.8430 ms`（快 `0.7652%`），未达到完整路径所需 `5.2711%`；case 3 从 `0.5270` 到 `0.5275 ms`（慢 `0.0949%`），更未达到所需 `10.5677%`，prefill 两点近似持平。controller 已 reject，无 repeat 或 OJ；decode-m4 memflow scheduler family 关闭，formal source 未改变。
 
 - 2026-08-31 `exp-20260831-258` 首次验证 width-eight cluster 的默认流完成边界：exact case 2 将单个 `(8,32,32)` main grid 拆成 32 个顺序 `(8,32,1)` launch，并以 case-2-only rank base 保持全部 `8192` useful CTA、稳定 map、K128 body、地址、字节与输出覆盖。focused/workflow `19/19`、C500 双臂 build、3/3 correctness、完整 regression、sampled/read-only、integrity 和 manifest 全过；独立审计确认 case-2 mapping、builder/cluster publication、外部 ABI 与只读语义无正确性问题。ABBA case 2 从 `5.9910` 回退到 `8.0965 ms`（`+35.1444%`），两 candidate arms `8.101/8.092 ms` 且 drift 仅 `-0.1111%`；保护三点近似持平。额外 launch 完成成本压倒任何 L2 边界收益，cluster-fenced/multi-launch family 关闭，controller 已 reject，无 OJ；formal source 未改变。
 
