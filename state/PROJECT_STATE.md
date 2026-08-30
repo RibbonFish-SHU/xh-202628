@@ -1,6 +1,6 @@
 # Project State
 
-更新时间：2026-08-30（Asia/Shanghai）
+更新时间：2026-08-31（Asia/Shanghai）
 
 ## 门禁状态
 
@@ -258,12 +258,12 @@
 | Fused MoE decode m4 direct-accumulator register lifetime | c500-target-regressed | `exp-20260830-247` / tested `a8f733a3edaf` 只移除 m4 drain 后的 `output_[16]` accumulator copy 与 `rowC_[16]`，直接消费 accumulator 并逐次形成 affine row。C500 双臂 build、3/3 correctness、完整 regression、integrity 与 `31/31` manifest 全过；资源仅从 `0/256/52/65536` 变为 `0/256/50/65536`，限制性的 256 MT 不变。case 1 `0.843 -> 0.846 ms`（慢 `0.355872%`），case 3 `0.528 -> 0.532 ms`（慢 `0.757576%`），两臂均回退。controller 已拒绝，无 repeat/integration/OJ；m4 direct-accumulator epilogue family 关闭。 |
 | Fused MoE decode m4 K128 full-fragment residency | c500-target-regressed | `exp-20260830-248` / tested `dd606401339d` / queue tip `2c4eacf21d91` 把 decode-only m4 从 K256/64 KiB 改为 K128/32 KiB，并在同 bank overwrite 前把完整当前 A/B image 载入寄存器。focused/workflow `18/18`、detached audit、C500 双臂 build、3/3 correctness、完整 regression、integrity 与 `31/31` manifest 全过；资源降到 `0/229/54/32768`，但 `staticMaxWarps/PEU` 仍为 `2`。case 1 `0.840 -> 1.143 ms`（慢 `36.0714%`），case 3 `0.525 -> 0.579 ms`（慢 `10.2857%`）。controller 已拒绝，无 repeat/integration/OJ；K128 full-fragment residency family 关闭。 |
 | OJ 显示分模型 | verified | 原始 SPJ 证据确认每 case `ratio = baseline_ms / (baseline_ms + user_ms)`，显示分为 `floor(100 * ratio)`。`#128452` 页面表格把 case 2 粗略显示为 `6.000 ms`，但展开 SPJ 的精确值是 `6.434 ms`、ratio `0.779370`、显示 77，故不存在计分矛盾。正式最佳 `#130490` case 2 为 `6.425 ms`、ratio `0.779611`；78 分精确门槛为 `22.728 * 22 / 78 = 6.410461538 ms`，仍需约 `0.2263%`。当前 86/77/90/86 到 85.50 至少还需三个显示分；各 case 下一分门槛分别约为 `0.761621/6.410462/0.440901/3.235207 ms` |
-| Submission controller | healthy-ready | owner `main-codex-20260831-81` / epoch 81，active claim 为空，candidate counts `reported=57/rejected=143`；未报告终态为 `0`，canonical DB 与 tracked mirror 一致。 |
-| C500 本地算力 | ready | MetaX C500/xcore1000；MACA 3.7.1.5；25% compute、16000 MiB slice；持久 SSH control connection 已恢复。最新诊断 run `exp-20260831-266-7347c96eff81-a01` 为 `failed/1`：双臂 build、3/3 correctness 和完整 regression 通过，但 case4 token-aware builder 因 harness capability 宏遗漏收到 `nullptr` 并触发 ATU fault；最新完整可信 ABBA 仍为 exp-263，当前无 active run。 |
+| Submission controller | healthy-ready | owner `main-codex-20260831-81` / epoch 81，active claim 为空，candidate counts `reported=57/rejected=144`；未报告终态为 `0`，canonical DB 与 tracked mirror 一致。 |
+| C500 本地算力 | ready | MetaX C500/xcore1000；MACA 3.7.1.5；25% compute、16000 MiB slice；持久 SSH control connection 可用。最新可信 run `exp-20260831-267-449054dc0fd3-a01` 为 `succeeded/0`：双臂 build、3/3 correctness、完整 regression、ABBA 与 `31/31` manifest 全过，当前无 active run。 |
 | Agent OJ 提交次数 | 81 | 最新 `#132434` 为 Triton 4/4 Accepted 79.75、排名 17，已 finalized 并释放槽位；正式最佳仍为 `#130490` 的 CUDA Maca 84.75。 |
 | 待向用户报告的提交 | 0 | 既有终态均已在用户恢复期间登记为 reported；不阻塞下一 claim。 |
 | 并行编排工作流 | c500-native | Main Agent 统一管理隔离 Subagent、唯一 C500 ABBA 验证槽和唯一 XPU-OJ active claim |
-| 当前并行批次 | post-exp-266-formal-clean | 正式基线仍为 `8341aa38e55659285673111df90e786c1fba08df` / OJ `#130490` / 84.75 / 最新已知排名 17，目标 85.50 仍需三个显示分。恢复出的 exp-265/266 改为 case4-only `grid.x=32` 双 expert 16+16 canonical-A block，并依次测试 parallel/serial builder；两者都因未定义受信 harness capability 宏而给 token-aware builder 传入 `nullptr`，没有形成性能证据。活动 CUDA source 始终为 formal blob `48704a2870975c3990f4681089b1a4efc35d99fa` / LF SHA-256 `083eb1262dbe220aea0c2b324a00f2cf9b14720dc2b8c1701b261f794eaf8cf1`。下一 fresh experiment 只在 exp-266 serial-map 源码上补 `XH_FUSED_MOE_CANONICAL_TOKEN_A`，必须通过完整 C500 gate 且 case4 至少改善 `14.9897%` 才能 OJ。 |
+| 当前并行批次 | post-exp-267-formal-clean | 正式基线仍为 `8341aa38e55659285673111df90e786c1fba08df` / OJ `#130490` / 84.75 / 最新已知排名 17，目标 85.50 仍需三个显示分。exp-267 正确定义受信 capability 宏并以 formal stable-sort builder 完成 case4 `grid.x=32` 双 expert 16+16 canonical-A pack map；完整 C500 门禁通过，但 case4 `3.3250 -> 3.3290 ms`（慢 `0.1203%`），证明跨 CTA 的理想 4.5-MiB cache block 不会由逻辑 block 顺序自动兑现。controller 已 reject，无 repeat/OJ；该 canonical-A physical-pack family 关闭。活动 CUDA source 始终为 formal blob `48704a2870975c3990f4681089b1a4efc35d99fa` / LF SHA-256 `083eb1262dbe220aea0c2b324a00f2cf9b14720dc2b8c1701b261f794eaf8cf1`。下一实验必须使用不依赖 CTA 调度邻接的新结构机制。 |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
 机器可读当前门禁见 `state/c500-execution.json`；`state/remote-execution.json` 仅保留已停用 NVIDIA 历史配置。
@@ -326,6 +326,8 @@
 - 结果全部保留且不自动删除；达到空间门禁时停止并报告。
 
 ## 当前技术阶段与下一步
+
+- 2026-08-31 `exp-20260831-267` / tested `449054dc0fd3` / queue tip `affbf3906925` 使用 formal stable-sort builder 后的统一 in-place pack kernel，为 exact case4 构造 logical/canonical A packed map，并把 256 个 stable ranks 双射为八个 width-32 block、每块两个 expert 各 16 tiles。源码定义 `XH_FUSED_MOE_CANONICAL_TOKEN_A`，逐 tile 比较全部 128 个 `token_ids >> 3` 行，不匹配即回退 logical A；B/metadata/output 保持 logical ownership。独立 exact-commit 审计 `APPROVE`，同时指出非 `8x32` 只保证语义双射而不恢复 formal physical 顺序，且 CUDA/MACA 不保证 CTA 调度邻接。local focused/workflow `21/21`、C500 双臂 build、3/3 correctness、完整 regression、sampled/read-only、source/tree integrity 与 `31/31` manifest 全过；case4 main 为 `0/230/30/32768/2`。ABBA case4 `3.3250 -> 3.3290 ms`（慢 `0.1203%`），两 arms `3.320 -> 3.332` 与 `3.330 -> 3.326 ms`，远低于 `14.9897%` 门槛；controller 已 reject，无 repeat/OJ，formal source 未改变，case4 dual-expert canonical-A pack-map family 关闭。
 
 - 2026-08-31 `exp-20260831-266` / tested `7347c96eff81` / queue tip `565211cc66a0` 保留 exp-265 case4-only `grid.x=32` 双 expert 16+16 packed logical/canonical map，但由单 builder thread 串行构造 histogram、全 128-row token 验证和 256 map entries，移除 shared atomics/barriers。local focused/workflow `21/21`、双臂 build、3/3 correctness 和完整 regression 通过；case 1/2/3 warmup medians 为 `0.839/5.985/0.526 ms`，首个 case4 serial builder 随即触发 ATU fault。根因不是 builder 并行性，而是源码未定义 `XH_FUSED_MOE_CANONICAL_TOKEN_A`，受信 harness 因此调用带默认 `nullptr` 的内部 launch。controller 已 reject，无 ABBA/OJ，formal source 未改变；fresh 修复必须使用新 experiment。
 
