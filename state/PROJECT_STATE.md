@@ -263,7 +263,7 @@
 | Agent OJ 提交次数 | 81 | 最新 `#132434` 为 Triton 4/4 Accepted 79.75、排名 17，已 finalized 并释放槽位；正式最佳仍为 `#130490` 的 CUDA Maca 84.75。 |
 | 待向用户报告的提交 | 0 | 既有终态均已在用户恢复期间登记为 reported；不阻塞下一 claim。 |
 | 并行编排工作流 | c500-native | Main Agent 统一管理隔离 Subagent、唯一 C500 ABBA 验证槽和唯一 XPU-OJ active claim |
-| 当前并行批次 | post-exp-248-formal-clean | 正式基线仍为 `8341aa38e55659285673111df90e786c1fba08df` / OJ `#130490` / 84.75 / 最新已知排名 17，目标 85.50 仍需三个显示分。exp-247 证明 epilogue source-level live-range reduction没有改变 256 MT 门槛；exp-248 证明 64->32 KiB shared 与 256->229 MT 仍未改变 `staticMaxWarps=2`，K128 full-fragment residency 反而显著拖慢 decode。活动 CUDA source 始终为 formal blob `48704a2870975c3990f4681089b1a4efc35d99fa` / LF SHA-256 `083eb1262dbe220aea0c2b324a00f2cf9b14720dc2b8c1701b261f794eaf8cf1`。只读研究继续筛选能提供至少三个 raw points 的新结构机制；两个明确保留残稿保持不动。 |
+| 当前并行批次 | post-exp-258-formal-clean | 正式基线仍为 `8341aa38e55659285673111df90e786c1fba08df` / OJ `#130490` / 84.75 / 最新已知排名 17，目标 85.50 仍需三个显示分。exp-249 至 exp-258 已关闭 decode u32 地址、K64/partial two-ahead、六 load 头部提前、MXCC scheduler、dual-M shared-B、expert-aligned width-seven 和 cluster-fenced multi-launch；其中 exp-258 的 32 次顺序 case-2 launch 在 C500 回退 `35.1444%`。活动 CUDA source 始终为 formal blob `48704a2870975c3990f4681089b1a4efc35d99fa` / LF SHA-256 `083eb1262dbe220aea0c2b324a00f2cf9b14720dc2b8c1701b261f794eaf8cf1`。继续只分配能够解释至少三个 raw points 的新结构机制；两个明确保留残稿保持不动。 |
 | 用户报告模式 | deferred | 用户于 2026-08-23 要求在被人为打断前静默连续工作；OJ 终态逐次落盘并立即释放槽位，打断/询问/结束/用户阻塞时汇总未报告结果 |
 
 机器可读当前门禁见 `state/c500-execution.json`；`state/remote-execution.json` 仅保留已停用 NVIDIA 历史配置。
@@ -326,6 +326,8 @@
 - 结果全部保留且不自动删除；达到空间门禁时停止并报告。
 
 ## 当前技术阶段与下一步
+
+- 2026-08-31 `exp-20260831-258` 首次验证 width-eight cluster 的默认流完成边界：exact case 2 将单个 `(8,32,32)` main grid 拆成 32 个顺序 `(8,32,1)` launch，并以 case-2-only rank base 保持全部 `8192` useful CTA、稳定 map、K128 body、地址、字节与输出覆盖。focused/workflow `19/19`、C500 双臂 build、3/3 correctness、完整 regression、sampled/read-only、integrity 和 manifest 全过；独立审计确认 case-2 mapping、builder/cluster publication、外部 ABI 与只读语义无正确性问题。ABBA case 2 从 `5.9910` 回退到 `8.0965 ms`（`+35.1444%`），两 candidate arms `8.101/8.092 ms` 且 drift 仅 `-0.1111%`；保护三点近似持平。额外 launch 完成成本压倒任何 L2 边界收益，cluster-fenced/multi-launch family 关闭，controller 已 reject，无 OJ；formal source 未改变。
 
 - 2026-08-27 `exp-20260827-185` 是在新的目标 SDK 证据下对 B-only raw asynchronous BSM 的唯一复审：已从 `maca_kernel_utils.hpp` 和官方 MCTLASS 示例确认 completion 需要 `arrive_gvmcnt(0)`、`arrive_bsmcnt(0)`、`barrier_inst`，故 exact sorted case 2 在原 first CTA boundary 后以四个 BSM B0-B3 替换四个 normal B register load/STS，并在原 second CTA publication 前加入 `arrive(64)`、`arrive(4096)`、`barrier_inst`。独立审计验证 case-2-only dispatch、1024 个 16-byte B sector 的 source/destination 双射、所有四个 wave 的 publication 链和 T=1/2/16/56 生命周期；C500 build、3/3 correctness、regression、integrity 与 manifest 均通过。但 ABBA 的 case 2 aggregate 从 `6.0585` 升至 `6.8230 ms`（`+12.6186%`），两 candidate arms `6.722/6.924 ms` 均慢于 baseline `6.060/6.057 ms`，candidate drift `+3.005%`。因此 `cand-exp-20260827-185-case2-bsmcnt-publish` 已在 controller 拒绝、不集成也不提交 OJ；`documented BSM-counter completion` family 关闭，原始证据保留于 `artifacts/raw/c500-runs/exp-20260827-185-65893b28c2ad-a01/`。
 
