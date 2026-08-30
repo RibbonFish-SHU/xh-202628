@@ -884,13 +884,44 @@ void benchmark_public_case(const PublicCase& public_case) {
     fill_float(dev_moe_weights.get(), config.em, 1.0f);
     std::vector<int32_t> experts(config.em / 128);
     std::vector<int32_t> token_ids(config.em);
-    for (int row = 0; row < config.em; ++row) {
-        token_ids[row] = (row * 8191) & (config.em - 1);
-    }
     for (size_t tile = 0; tile < experts.size(); ++tile) {
         experts[tile] = public_case.skewed
             ? static_cast<int32_t>((tile * tile + 3 * tile) % 16)
             : static_cast<int32_t>((tile * 73) % 256);
+    }
+    if (public_case.skewed) {
+        std::vector<int32_t> expert_counts(256, 0);
+        std::vector<int32_t> expert_slots(256, -1);
+        for (int32_t expert : experts) {
+            ++expert_counts[expert];
+        }
+        int active_experts = 0;
+        for (int expert = 0; expert < 256; ++expert) {
+            if (expert_counts[expert] != 0) {
+                if (expert_counts[expert] != 32) {
+                    throw std::runtime_error("prefill route model lost its 32-tile expert balance");
+                }
+                expert_slots[expert] = active_experts++;
+            }
+        }
+        if (active_experts != 8) {
+            throw std::runtime_error("prefill route model must contain exactly eight active experts");
+        }
+
+        std::vector<int32_t> expert_tile_ranks(256, 0);
+        for (size_t tile = 0; tile < experts.size(); ++tile) {
+            const int expert = experts[tile];
+            const int expert_tile_rank = expert_tile_ranks[expert]++;
+            const int expert_slot = expert_slots[expert];
+            for (int local_row = 0; local_row < 128; ++local_row) {
+                const int token = expert_tile_rank * 128 + local_row;
+                token_ids[tile * 128 + local_row] = token * 8 + expert_slot;
+            }
+        }
+    } else {
+        for (int row = 0; row < config.em; ++row) {
+            token_ids[row] = (row * 8191) & (config.em - 1);
+        }
     }
     dev_token_ids.copy_from(token_ids);
     dev_expert_ids.copy_from(experts);
