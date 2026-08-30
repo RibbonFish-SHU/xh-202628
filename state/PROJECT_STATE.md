@@ -327,6 +327,8 @@
 
 ## 当前技术阶段与下一步
 
+- 2026-08-31 `exp-20260831-262` 将 exp-261 的两级 main-kernel 查表改为 ordered builders 预计算 32768 项 `routed row -> canonical row` direct map；sorted main 只做一级读取且不再携带 `token_ids` pointer，资源完全恢复 formal 的 `0 stack / 230 MT / 40 ST / 32768 shared / 2 warps`。local focused/workflow `19/19`、C500 双臂 build、3/3 correctness、完整 regression、sampled/read-only、source/tree integrity 与 `31/31` manifest 全过。但 ABBA case 2 `5.9905 -> 5.9970 ms`（慢 `0.1085%`，两 arms `6.011/5.983`），case 4 `3.3320 -> 3.3885 ms`（慢 `1.6957%`，两 arms `3.391/3.386`）。controller 已 reject，无 repeat/OJ；formal source 未改变。route-map 生成/读取流量而非 ST 压力是主代价，direct/packed route-map 子族关闭。
+
 - 2026-08-31 `exp-20260831-261` 首次在完整 `token_ids` harness 上验证 prefill canonical routed-A 复用：existing full-sort builder 为每个 token 发布唯一 slot-zero expanded row，两个 sorted prefill kernel 将 routed row 经 `token_ids -> canonical-token-row` 两级查表后读取 bit-identical A；decode 在查表前返回，generic 保持 formal 地址。local focused/workflow `19/19`、C500 双臂 build、3/3 correctness、完整 regression、sampled/read-only、source/tree integrity 与 `31/31` manifest 全过。ABBA case 2 `5.9895 -> 5.9325 ms`（快 `0.9517%`），但远低于完整路径所需 `5.967%`；case 4 `3.3300 -> 3.3505 ms`（慢 `0.6156%`），且 sorted ST registers `40 -> 52`。controller 已 reject，无 repeat 或 OJ；formal source 未改变。该结果只保留为语义机制有效、主 kernel 两级依赖与寄存器开销过高的证据，后续必须用新 lane 独立验证低开销 route-map 形式。
 
 - 2026-08-31 `exp-20260831-260` 在实现前因 workflow harness 缺少 `token_ids` 分配/传参、且 expanded A 各行独立填充而 `WORKFLOW-REJECTED`；没有 submission source 改动、C500、queue、browser 或 OJ 动作。随后 `4152f225fd65` 仅扩展受信 harness：公开 shapes 使用完整 permutation `token_ids`，A 按 `token_id >> 3` 填充八份 exact copies，旧候选签名保持 compile-time 隔离。该 workflow commit 的 focused/workflow tests `15/15` 通过，正式 best source blob 保持 `48704a2870975c3990f4681089b1a4efc35d99fa`。
