@@ -1,8 +1,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define XH_FUSED_MOE_CANONICAL_TOKEN_A 1
-
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
@@ -107,7 +105,6 @@ __global__ void build_output_scratch_expert_sort_map_kernel(
 }
 
 __device__ int32_t g_case2_full_expert_sort_map[kOutputScratchSortTiles];
-__device__ int32_t g_prefill_canonical_token_row[4096];
 
 __host__ __device__ __forceinline__ int case2_full_stable_sort_rank(
     const int32_t* expert_ids,
@@ -125,21 +122,13 @@ __host__ __device__ __forceinline__ int case2_full_stable_sort_rank(
 }
 
 __global__ void build_case2_full_expert_sort_map_kernel(
-    const int32_t* __restrict__ expert_ids,
-    const int32_t* __restrict__ token_ids,
-    int em
+    const int32_t* __restrict__ expert_ids
 ) {
     const int logical_tile_m = threadIdx.x;
     if (logical_tile_m < kOutputScratchSortTiles) {
         const int physical_tile_m = case2_full_stable_sort_rank(
             expert_ids, logical_tile_m, kOutputScratchSortTiles);
         g_case2_full_expert_sort_map[physical_tile_m] = logical_tile_m;
-    }
-    for (int row = threadIdx.x; row < em; row += blockDim.x) {
-        const int token_id = token_ids[row];
-        if ((token_id & 7) == 0) {
-            g_prefill_canonical_token_row[token_id >> 3] = row;
-        }
     }
 }
 
@@ -269,7 +258,6 @@ __global__ void fused_moe_i8_tn_mma_kernel(
     const float* __restrict__ scale_a_ptr,
     const float* __restrict__ scale_b_ptr,
     const float* __restrict__ moe_weights_ptr,
-    const int32_t* __restrict__ token_ids_ptr,
     const int32_t* __restrict__ expert_ids_ptr,
     __nv_bfloat16* __restrict__ out_ptr,
     int runtime_em,
@@ -378,12 +366,7 @@ __global__ void fused_moe_i8_tn_mma_kernel(
 #pragma unroll
     for (uint32_t i = 0; i < kMmaLoadsA; ++i) {
         const int routed_row = row_base + load_a_row_base + kMmaRowsPerLoad * i;
-        if constexpr (kUseOutputScratchExpertSort) {
-            const int token = token_ids_ptr[routed_row] >> 3;
-            load_a_row_offset[i] = g_prefill_canonical_token_row[token] * k;
-        } else {
-            load_a_row_offset[i] = routed_row * k;
-        }
+        load_a_row_offset[i] = routed_row * k;
     }
     {
         const int candidate_col = load_b_row_base;
@@ -1071,8 +1054,7 @@ static inline void launch(
     const float* moe_weights,
     const int32_t* expert_ids,
     __nv_bfloat16* out,
-    const KernelConfig& config,
-    const int32_t* token_ids = nullptr
+    const KernelConfig& config
 ) {
 #if XH_FUSED_MOE_MACA
     if (config.em == 4096
@@ -1095,7 +1077,7 @@ static inline void launch(
     );
     if (use_global_sort_map) {
         build_case2_full_expert_sort_map_kernel
-            <<<1, kOutputScratchSortTiles>>>(expert_ids, token_ids, config.em);
+            <<<1, kOutputScratchSortTiles>>>(expert_ids);
         if (use_prefill_down_module_full_expert_sort(config)) {
             fused_moe_i8_tn_mma_kernel<true, 32768, 7168, 2048>
                 <<<grid, block>>>(
@@ -1104,7 +1086,6 @@ static inline void launch(
                     scale_a,
                     scale_b,
                     moe_weights,
-                    token_ids,
                     expert_ids,
                     out,
                     config.em,
@@ -1118,7 +1099,6 @@ static inline void launch(
                 scale_a,
                 scale_b,
                 moe_weights,
-                token_ids,
                 expert_ids,
                 out,
                 config.em,
@@ -1133,7 +1113,6 @@ static inline void launch(
             scale_a,
             scale_b,
             moe_weights,
-            nullptr,
             expert_ids,
             out,
             config.em,
@@ -1182,13 +1161,14 @@ extern "C" void run_kernel(
     int64_t topk,
     __nv_bfloat16* out
 ) {
+    (void)token_ids;
     (void)topk;
     xh_fused_moe::KernelConfig config{};
     if (!xh_fused_moe::infer_public_config(a, out, &config)) {
         return;
     }
     xh_fused_moe::launch(
-        a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config, token_ids);
+        a, b_col_major, scale_a, scale_b, moe_weights, expert_ids, out, config);
 }
 #endif
 
