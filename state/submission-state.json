@@ -1,5 +1,5 @@
 {
-  "pending_report": "133848",
+  "pending_report": null,
   "submissions": [
     {
       "commit": "3b7f02efb7950fa5106ea7cd166ccc40e06a8bdd",
@@ -1656,13 +1656,14 @@
       "experiment": "exp-20260831-270",
       "id": "133848",
       "language": "CUDA Maca",
+      "message_ref": "user-update-20260831-exp270-final",
       "notes": "4/4 Accepted; cases 86/67/89/79; 18.003 ms; canonical-A transfer regressed both prefill targets",
       "operator": "Fused MoE i8 tn",
       "previous_score": "84.75",
       "rank": "n/a",
-      "report_summary": null,
-      "reported_at": null,
-      "reported_to_user": false,
+      "report_summary": "exp-270 exact canonical-A replay: OJ Accepted 80.25, cases 86/67/89/79, 4.50 points below formal best 84.75; rejected and formal source restored",
+      "reported_at": "2026-08-31T03:48:02+00:00",
+      "reported_to_user": true,
       "score": "80.25",
       "status": "Accepted",
       "submitted_at": "2026-08-31T03:24:21+00:00",
